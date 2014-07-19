@@ -1,0 +1,43 @@
+! Non-Unit Stride Write Test
+
+! This tests support for non-unit strided write accesses. This entails the use
+! of subscripts with explicit strides. Here, image 1 does a non-unit stride write
+! access to image 2, and then image 2 prints ths contents of the array
+! that was written to.
+
+
+      program test_nus_write
+        integer, allocatable :: a(:,:)[:]
+
+        allocate ( a(10,10)[*] )
+
+        a = this_image()
+
+        if (this_image() == 2) then
+          print *, "printing a on image 2 ..."
+          do i=1,10
+            print *, a(i,:)
+          end do
+          call flush(6)
+        end if
+
+
+        sync all
+
+        if (this_image() == 1) then
+          a(1:10:3, 1:10:2)[2] = -1000
+        end if
+
+        sync all
+
+        if (this_image() == 2) then
+          print *, "printing a on image 2 (after update) ..."
+          do i=1,10
+            print *, a(i,:)
+          end do
+          call flush(6)
+        end if
+
+        deallocate(a)
+
+      end program

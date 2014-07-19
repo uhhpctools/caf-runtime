@@ -1,0 +1,22 @@
+! this should give a compiler error because the assignment does not contain
+! conforming arrays in LHS and RHS
+
+program bug662
+    type T
+        integer :: c(4)
+    end type
+    type(T) :: a(10,10)[2,*]
+    type(T), allocatable :: b(:)[:,:]
+    integer :: arr(4)
+
+    arr(1:4) = ucobound(a%c(2))
+
+    print *, arr
+
+    allocate( b(10)[2,*] )
+
+    arr(1:4) = ucobound(b%c(2))
+
+    print *, arr(1:2)
+
+end program

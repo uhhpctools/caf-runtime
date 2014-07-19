@@ -1,0 +1,27 @@
+ 
+BUFFON_LAPLACE - Master process:
+  FORTRAN90 version
+  An MPI example program to estimate PI
+  using the Buffon-Laplace needle experiment.
+  On a grid of cells of  width A and height B,
+  a needle of length L is dropped at random.
+  We count the number of times it crosses
+  at least one grid line, and use this to estimate 
+  the value of PI.
+ 
+  The number of processes is        4
+ 
+  Cell width A =          1.000000
+  Cell height B =         1.000000
+         2     123456989    0.909262    
+         3     123457089    0.909265    
+         4     123457189    0.909268    
+  Needle length L =       1.000000
+         1     123456889    0.909258    
+ 
+    Trials      Hits    Estimated PDF       Estimated Pi         Error
+ 
+    400000    382012    0.955030000000         3.14126257814        0.330075450887E-03
+ 
+BUFFON_LAPLACE - Master process:
+  Normal end of execution.

@@ -1,0 +1,7 @@
+ Now testing with scalar coarray component
+ * Test 1: allocate the scalar coarray with non-default lcobound
+lcobound is 3 and it should have been 3
+ * Test 2: assign value to scalar coarray component and read it back
+   3
+ * Test 3: read value of scalar coarray component using coindex
+   3

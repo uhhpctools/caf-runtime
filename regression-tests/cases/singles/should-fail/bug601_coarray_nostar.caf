@@ -1,0 +1,7 @@
+          program no_star 
+            implicit none
+            integer:: A(1)[2]
+            A = this_image()
+            sync all 
+            print *,this_image(),": A=",A
+          end program

@@ -1,0 +1,48 @@
+! Test for coarray component
+
+! This is a test for support of coarray components. We allocate the component,
+! initialize it, and then execute a number of accesses on image 1 using the
+! coarray component.
+
+      program main
+        integer, parameter :: N = 10
+        integer, parameter :: s = 4
+        type t1
+            integer :: x,y,z
+            integer, allocatable :: b1(:)[:]
+            character (len=5), allocatable :: b2(:)[:]
+        end type
+
+        type(t1) :: a1(N)
+        integer :: iam
+        integer :: y(N)
+        character (len=5) :: x(N)
+
+        allocate ( a1(s)%b1(N)[*] )
+        allocate ( a1(s)%b2(N)[*] )
+
+        a1(s)%b1(1:N:2) = 10*this_image()
+        a1(s)%b1(2:N:2) = 10*this_image()+1
+
+        a1(s)%b2(1:N:2) = "odd"
+        a1(s)%b2(2:N:2) = "even"
+
+        iam = this_image()
+
+        sync all
+
+        if (iam == 1) then
+            y(1:N/2) = a1(s)%b1(1:N:2)[2]
+            y(N/2+1:N) = a1(s)%b1(2:N:2)[2]
+            print *, "y is        : ", y
+            print *, "y should be : ",  &
+                 (/ 20, 20, 20, 20, 20, 21, 21, 21, 21, 21 /)
+            x(1:N/2) = a1(s)%b2(1:N:2)[2]
+            x(N/2+1:N) = a1(s)%b2(2:N:2)[2]
+            print *, "x is        : ", x
+            print *, "x should be : ",  &
+               (/ "odd", "odd", "odd", "odd", "odd", &
+                  "even ", "even ", "even ", "even ", "even " /)
+        end if
+
+      end program

@@ -1,0 +1,23 @@
+      program main
+        integer :: i, j
+        integer :: b(2,2,2,2)[*], c(2,2,2,2)
+
+        b = 0
+
+        do i=1,2
+          do j=1,2
+            c(:,:,i,j) = 10*i+j
+          end do
+        end do
+
+        sync all
+
+        b(:,:,1,:)[1] = c(:,:,:,1)*1
+        b(:,:,2,:)[1] = c(:,:,:,1)*1
+
+        sync all
+
+        print *, "it is:     ",b(:,:,:,:)
+        print *, "should be: ",(/11,11,11,11,11,11,11,11,              &
+                                 21,21,21,21,21,21,21,21/)
+      end program

@@ -1,0 +1,7 @@
+      subroutine bug623(s,t)
+        integer :: s(:)[*]
+        integer :: t(:,:)  ! FE uses erroneously same DV type as for s because it 
+                           ! thinks its the same number of dimensions
+        s = 0
+        t = 0
+      end subroutine

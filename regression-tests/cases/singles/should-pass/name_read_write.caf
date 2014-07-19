@@ -1,0 +1,35 @@
+! Read Write Test for Character String
+
+! This is a simple read and write test, where the coarray is a character
+! string.
+
+      program main
+        character (len=40) :: some_name[*]
+        integer :: iam
+
+        iam = this_image()
+
+        if (iam == 2) then
+            some_name = "Image 2"
+        end if
+
+        sync all
+
+        ! test read
+
+        if (iam == 1) then
+            print *, "name on image 2 is: ", some_name[2]
+        end if
+
+        ! test write
+        if (iam == 1) then
+            some_name[2] = "Image 2 (new)"
+        end if
+
+        sync all
+
+        if (iam == 2) then
+            print *,"new name on image 2 is: ", some_name
+        end if
+
+      end program

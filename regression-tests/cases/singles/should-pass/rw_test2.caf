@@ -1,0 +1,62 @@
+! Read and Write tests
+
+! More simple tests for reading and writing an array section on another image.
+
+      program rw_test2
+        integer, allocatable :: A(:,:)[:]
+
+        allocate(A(4,4)[*])
+
+        A = this_image()
+
+        sync all
+
+        ! test remote write
+
+        if (this_image() == 1) then
+          A(3:4,:)[2] = A(3:4,:)
+        end if
+
+        sync all
+
+        ! verify the remote write
+        if (this_image() == 2) then
+          print *, "== put check on image 2 =="
+          print *, A(1,:)
+          print *, A(2,:)
+          print *, A(3,:)
+          print *, A(4,:)
+          print *, "== should be =="
+          print *, "2 2 2 2"
+          print *, "2 2 2 2"
+          print *, "1 1 1 1"
+          print *, "1 1 1 1"
+          print *, "=========================="
+          print *, ""
+        end if
+
+        sync all
+
+        ! test remote read and verify
+
+        if (this_image() == 2) then
+          A(1:2,:) = A(1:2,:)[1]
+        end if
+
+        if (this_image() == 2) then
+          print *, "== get check on image 2 =="
+          print *, A(1,:)
+          print *, A(2,:)
+          print *, A(3,:)
+          print *, A(4,:)
+          print *, "== should be =="
+          print *, "1 1 1 1"
+          print *, "1 1 1 1"
+          print *, "1 1 1 1"
+          print *, "1 1 1 1"
+          print *, "=========================="
+        end if
+
+        sync all
+
+      end program

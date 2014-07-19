@@ -1,0 +1,127 @@
+! More coarray subroutine argument tests
+! These tests verify that coarray arguments are being passed in correctly.
+
+module subcall_tests
+    integer, parameter :: N = 10
+    contains
+
+    subroutine test1(a,b)
+        ! formal args are assumed shape
+        integer :: a(:)[*], b(:)
+
+        a(:)[2] = b(:)
+    end subroutine
+
+end module
+
+program main
+    use subcall_tests
+    implicit none
+
+    integer :: ti, ni
+    integer :: a1(2*N)[*], b1(2*N)
+    integer :: a2(2,N)[*], b2(2,N)
+    integer, allocatable :: a3(:)[:], b3(:)
+
+    type T
+        integer :: c(2,N)
+    end type
+
+    type(T) :: a[*], b
+
+    ti = this_image()
+    ni = num_images()
+
+    !------------------------------------------------------
+
+    sync all
+
+    ! pass contiguous slice of 1D array
+
+    if (ti == 2) print *, "passing contiguous slice of 1D array"
+
+    b1 = ti
+    a1 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a1(1:N),b1(1:N))
+
+    sync all
+
+    if (ti == 2) print *, "1: (",ti, ") a1 = ", a1
+
+    sync all
+
+    ! pass strided slice of 1D array
+    if (ti == 2) print *, "passing strided slice of 1D array"
+
+    b1 = ti
+    a1 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a1(1:2*N:2),b1(1:2*N:2))
+
+    sync all
+
+    if (ti == 2) print *, "2: (",ti, ") a1 = ", a1
+
+    sync all
+
+    !------------------------------------------------------
+
+    ! pass non-contiguous section of 2D array -- should NOT do copyin/copyout
+    ! for coarray argument
+    if (ti == 2) print *, "passing non-contiguous section of 2D array"
+
+    b2 = ti
+    a2 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a2(1,1:N),b2(1,1:N))
+
+    sync all
+
+    if (ti == 2) print *, "3: (",ti, ") a2 = ", a2(1,1:N)
+
+    !------------------------------------------------------
+
+    allocate( a3(2*N)[*], b3(2*N) )
+
+    ! pass a contiguous slice of an allocatable
+
+    if (ti == 2) print *, "passing contiguous slice of 1D allocatable array"
+
+    b3 = ti
+    a3 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a3(1:N),b3(1:N))
+
+    sync all
+
+    if (ti == 2) print *, "4: (",ti, ") a1 = ", a3
+
+    sync all
+
+    !------------------------------------------------------
+
+    ! pass non-contiguous, component section of 2D array -- should NOT do
+    ! copyin/copyout for coarray argument
+    if (ti == 2) print *, "passing non-contiguous component section of 2D array"
+
+    b%c = ti
+    a%c = 0
+
+    sync all
+
+    if (ti == 1) call test1(a%c(1,1:N),b%c(1,1:N))
+
+    sync all
+
+    if (ti == 2) print *, "5: (",ti, ") a%c = ", a%c(1,1:N)
+
+end program

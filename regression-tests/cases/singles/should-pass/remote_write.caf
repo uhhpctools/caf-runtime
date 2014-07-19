@@ -1,0 +1,24 @@
+! Read after Write Test
+
+! Each image writes to its neighbor, and then reads back the value. Incorrect
+! values may be due to ordering of remote accesses not being enforced properly
+! by runtime.
+
+    PROGRAM get_after_put
+        real :: a(10)[*], b, c[*]
+        integer :: me
+        me = this_image()
+        if(me/=num_images()) then
+            a(:)[me+1]=me
+            c[me+1] = me+10
+            b = a(5)[me+1]
+            a(:)[me+1]=me + 100
+        else
+            a(:)[1] = me
+            c[1] = me+10
+            b = a(5)[1]
+            a(:)[1] = me + 100
+        end if
+        sync all
+        print *,me,": c=",c,"| b=",b," | a(10)=",a
+    END PROGRAM

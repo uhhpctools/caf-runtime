@@ -1,0 +1,22 @@
+! Allocatable Coarray Test 2
+
+! Basic test for an allocatable coarray
+! Allocate two coarrays, locally modify them, perform a remote read/write
+! through them, and print the results.
+
+        program alloc_coarray
+            integer, allocatable :: a(:)[:], c(:)[:]
+            integer :: b
+            allocate( a(10)[*], c(10)[*])
+            a = this_image()
+            c = this_image()
+            sync all
+            if( this_image() == 1) then
+                b = 2
+            else
+                b = a(1)[1]  ! remote read
+                c(:)[1] = 100 ! remote write
+            end if
+            sync all
+            print *,this_image(),": A", a, " B=",b," C=", c
+        end program

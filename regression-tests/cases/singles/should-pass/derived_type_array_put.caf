@@ -1,0 +1,29 @@
+    ! bug 670
+    !
+
+   program bug670
+       type T
+           integer :: x, y
+       end type
+
+       type(T) :: a(2)[*]
+
+       a(:)%x = (this_image()-1)*10 + 1
+       a(:)%y = (this_image()-1)*10 + 1
+
+       sync all
+
+       if (this_image() == 1) then
+           ! this assignment is not transferring any data because the compiler
+           ! erroneously sets the first "count" to be 0.
+           a(:)[2] = a(:)
+           print *, "the following should be the same"
+       end if
+
+       sync all
+
+       if (this_image() == 1 .or. this_image() == 2) then
+           print *, this_image(), ": a(:) = ", a(:)
+       end if
+
+    end program

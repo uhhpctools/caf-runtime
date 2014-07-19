@@ -1,0 +1,69 @@
+! various tests that elem size is being calculated correctly during
+! coarray lowering phase in compiler.
+! run with a single image
+
+        module tests
+          contains
+
+          ! check1: (wrong output)
+          ! For first assignment, compiler will generate a direct copy
+          ! into a2, but it doesn't recognize that a I4->I8 type
+          ! conversion is required for each element. For second
+          ! assignment, again it doesn't recognize that a I8-I4 type
+          ! conversion is required. 
+          subroutine check1()
+              type T
+                  integer :: x, y
+              end type 
+              integer*8 :: a1(2)[*]
+              integer :: a2(2)[*]
+
+
+              a2 = 0
+              a1 = (/ 1, 2 /)
+              a2(:) = a1(:)[1]
+
+              print *, "is: ", a1
+              print *, "should be: ", a2
+
+              a1 = 0
+              a2 = (/ 1, 2 /)
+              a1(:) = a2(:)[1]
+
+              print *, "is: ", a2
+              print *, "should be: ", a1
+          end subroutine
+
+          ! check2: (potential memory error)
+          ! The front-end will enclose the reference a1(:)[1] on RHS in
+          ! a OPR_CVTL tree, converting the return type from I2 to I4.
+          ! The compiler identifies this as a strided transfer with
+          ! unknown strided (since it is assumed shape). As a result, it
+          ! generates an assignment LCB <- a1(:)[1] first. The LCB array
+          ! section on the LHS is treated as returning I4 elements, in
+          ! keeping with the return type of the original RHS. However,
+          ! the LCB was allocated assuming only I2 elements. Hence, the
+          ! eventual data transfer results in a buffer overflow.
+          subroutine check2(a1,a2)
+              integer*2 :: a1(:)[*]
+              integer*2 :: a2(:)
+
+              a1 =  1
+              a2(:) = a1(:)[1]
+
+              print *, "is: ", a1
+              print *, "should be: ", a2
+          end subroutine
+
+         end module
+
+         program main
+           use tests
+           integer*2 :: a1(10)[*]
+           integer*2 :: a2(10)
+ 
+           if (this_image() == 1) then
+               call check1()
+               call check2(a1,a2)
+           end if 
+         end program

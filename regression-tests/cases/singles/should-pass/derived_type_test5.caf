@@ -1,0 +1,34 @@
+! Derived Type Test 5
+
+! This tests non-contiguous array section coarray read from derived type
+! components. The compiler should recognize this as a strided accesses.
+
+      program main
+        implicit none
+        type T1
+            integer :: x(3)
+        end type
+
+        type(T1) :: a(10)[*]
+        type(T1) :: b(10)
+        integer ::  c(10)
+        integer :: i
+
+        a(:)%x(1) = (/ (10*this_image()+i, i=1,10) /)
+        a(:)%x(2) = (/ (100*this_image()+i, i=1,10) /)
+        a(:)%x(3) = (/ (1000*this_image()+i, i=1,10) /)
+
+        b(:)%x(1) = 0
+        b(:)%x(2) = 0
+        b(:)%x(3) = 0
+
+        sync all
+
+        if (this_image() == 1) then
+            b(:)%x(3) = a(:)[1]%x(2)
+            print *, "b(:)%x(3)    = ", b(:)%x(3)
+            print *, "a(:)[1]%x(2) = ", a(:)[1]%x(2)
+            print *, "a(:)%x(2)    = ", a(:)%x(2)
+        end if
+
+      end program

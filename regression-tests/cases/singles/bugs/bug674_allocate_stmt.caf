@@ -1,0 +1,37 @@
+! bug674
+!
+! This bug is related to the allocate statement. The compiler incorrectly
+! eliminates the initialization of the allocatable x following the allocate
+! statement. It does not recognize that the buffer allocated for x may be read
+! from in the call to f.
+
+program bug674
+    !use mymod
+
+    integer, parameter :: N=10
+    integer, allocatable :: x(:)
+    integer :: y(N)
+
+    allocate (x(10))
+    x(:) = 1
+
+    call f(x,y)
+
+    if ( any(y /= 1) ) then
+        print *, "FAIL: ", y
+    else
+        print *, "SUCCESS"
+    end if
+
+    stop
+
+    contains
+
+    subroutine f(x,y)
+        integer :: x(:)
+        integer :: y(:)
+
+        y = x
+    end subroutine f
+
+end program bug674

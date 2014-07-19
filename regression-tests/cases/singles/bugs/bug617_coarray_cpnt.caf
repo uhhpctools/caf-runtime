@@ -1,0 +1,16 @@
+        program bug617_coarray_cpnt
+
+        type T1
+            integer, allocatable :: b(:)[:]
+        end type
+
+        type(T1) :: a
+        integer, allocatable :: t(:)
+
+        allocate( t(4) )
+        allocate( a%b(4)[*] )
+
+        t(:) = a%b(:)[3]
+
+
+        end program

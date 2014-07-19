@@ -1,0 +1,39 @@
+module tests
+    contains
+        subroutine f(a)
+            integer :: a(:)[*]
+        end subroutine
+end module tests
+
+program main
+    use tests
+    implicit none
+
+    type u
+        integer, allocatable :: c1(:)
+        integer :: c2(10)
+    end type
+
+    type t
+        type(u), allocatable :: b(:)[:]
+    end type
+
+    type(t) :: a(10)
+
+    ! actual argument is a legal coarray
+    call f( a(5)%b(1)%c2(1:10) )
+
+    ! actual argument is a legal coarray
+    call f( a(5)%b(1:10)%c2(1) )
+
+    ! actual argument is not a legal coarray due to allocatable component
+    ! selection
+    call f( a(5)%b(1)%c1(1:10) )  ! <-- compiler should give an error here
+
+    ! actual argument is not a legal coarray due to cosusbscript
+    call f( a(5)%b(1)[2]%c2(1:10) )  ! <-- compiler should give an error here
+
+    ! actual argument is not a legal coarray due to vector subscript
+    call f( a(5)%b([1,2,5])%c2(1) )  ! <-- compiler should give an error here
+
+end program

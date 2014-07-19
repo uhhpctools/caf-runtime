@@ -1,0 +1,31 @@
+      program full_str_mismatch
+        integer, allocatable :: a(:,:)[:]
+        integer :: t(10,10)
+        integer :: i
+
+        allocate(a(10,10)[*])
+
+        do i=1,10
+            a(i,:) = 10*this_image()+i
+        end do
+
+        sync all
+
+        ! this is a valid array assignment in Fortran, but currently not
+        ! handled correctly due to extents not matching for all
+        ! dimensions.
+        if (this_image() == 1) then
+            t = 0
+            t(1,1:10:2) = a(1:5,1)[2]
+            t(1,2:10:2) = a(6:10,1)[2]
+            do i=1,10
+                print *, t(i,:)
+            end do
+
+            t(1:10:2,1) = a(1,1:5)[2]
+            t(2:10:2,1) = a(1,6:10)[2]
+            do i=1,10
+                print *, t(i,:)
+            end do
+        end if
+      end program

@@ -1,0 +1,58 @@
+! Pointer Test 2
+
+! Test functionality of a pointer component of a coarray being associated with
+! a local array target. Because b is not a coarray, the access here entails
+! accessing an array that may not be have been allocated within the runtime's shared
+! memory segment. We can handle this in GASNet using AM, but the ARMCI
+! implementation of the runtime does not support this at this time.
+
+        program main
+          implicit none
+
+          type T1
+              integer :: x, y, z
+              integer, pointer :: p(:)
+          end type
+
+          integer, parameter :: N = 10
+          integer, target :: b(N)
+          integer, target :: c(N)[*]
+          type(T1)        :: a[*]
+          integer         :: iam
+          integer         :: i
+
+          iam = this_image()
+
+          b(:) = (/ ( 10*iam+i, i=1,N ) /)
+
+          a%p => b
+
+          c = iam
+
+          sync all
+
+          if (iam == 1) then
+              print *, " a[1]%p(:) = ",   a[1]%p(:)
+              print *, " a[2]%p(:) = ",   a[2]%p(:)
+              print *, " a[3]%p(:) = ",   a[3]%p(:)
+              print *, " a[4]%p(:) = ",   a[4]%p(:)
+              print *, " a[1]%p(::2) = ", a[1]%p(::2)
+              print *, " a[2]%p(::2) = ", a[2]%p(::2)
+              print *, " a[3]%p(::2) = ", a[3]%p(::2)
+              print *, " a[4]%p(::2) = ", a[4]%p(::2)
+
+              a[1]%p(:) = 1000
+              a[2]%p(:) = 1000
+              a[3]%p(:) = 1000
+              a[4]%p(:) = 1000
+              a[1]%p(::2) = 500
+              a[2]%p(::2) = 500
+              a[3]%p(::2) = 500
+              a[4]%p(::2) = 500
+          end if
+
+          sync all
+
+          print *, iam, ": a%p(:) = ", a%p(:)
+
+        end program

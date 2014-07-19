@@ -1,0 +1,18 @@
+      module coarrays
+        integer,save :: a[*]
+      end module
+
+      program main
+        use coarrays
+        integer :: x
+
+        a = this_image()
+
+        sync all
+
+        if (this_image() == 1) then
+            x = a[2]
+            print *, "a[2] = ", x
+        end if 
+
+      end program

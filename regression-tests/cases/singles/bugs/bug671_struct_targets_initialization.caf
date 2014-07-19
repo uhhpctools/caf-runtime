@@ -1,0 +1,26 @@
+! bug671
+!
+! static initialization for target (a) needs to occur after translated compiled
+! program calls caf_init
+
+program bug671
+    type T
+        integer :: x
+        type(T), pointer :: p
+    end type
+
+    type(T), target :: a
+    type(T), pointer :: b
+
+    a%x = 10
+
+    if (this_image() == 1) then
+        b => a
+
+        if (b%x /= 10) then
+            print *, "fail"
+        else
+            print *, "success"
+        end if
+    end if
+end program

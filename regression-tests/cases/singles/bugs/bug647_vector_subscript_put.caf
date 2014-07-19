@@ -1,0 +1,55 @@
+! vector subscript put test
+! puts to a coarray with vector subscripts from a local buffer
+
+      program main
+          integer :: a(10)[*]
+          integer :: b(10)
+          integer :: x(3)
+          integer :: y(3)
+
+          if (this_image() == 1) then
+             a = 0
+             b = 0
+             x = (/ 1, 3, 5 /)
+             y = (/8,9,10/)
+
+             print *, ""
+             print *," a = 0 "
+             print *," x = (/1,3,5/)"
+             print *," y = (/8,9,10/)"
+             write (*, '(a)') " testing: a( x(:) )[1] = y(:)"
+             a( x(:) )[1] = y(:)
+             b( x(:) )    = y(:)
+
+             if ( any(a /= b) ) then
+                 print *, "a         = ", a
+                 print *, "should be = ", b
+             else
+                 print *, "success"
+             end if
+
+             ! verify vector subscript get as well
+
+              a = (/ (i, i=1,10) /)
+              x = (/ 1, 3, 5 /)
+              y = 0
+              b = 0
+
+              print *, ""
+              print *," a = (/ (i, i=1,10) /) "
+              print *," x = (/1,3,5/)"
+              print *," y = 0"
+              write (*, '(a)') " testing: y(1:3) = a( x(:) )[1]"
+
+              y(1:3) = a( x(:) )[1]
+              b(1:3) = a( x(:) )
+
+              if ( any(y(1:3) /= b(1:3)) ) then
+                  print *, "y         = ", y(1:3)
+                  print *, "should be = ", b(1:3)
+              else
+                  print *, "success"
+              endif
+
+          end if
+      end program

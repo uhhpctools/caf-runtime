@@ -1,0 +1,19 @@
+! This checks write from a noncontig src to a contig dest
+
+program write_to_contig_dest
+    integer :: a(5,5), b(5,5)[*]
+    integer :: i
+
+    b = 0
+    do i=1,5
+        a(i,:) = i
+    end do
+
+    if (this_image() == 1) then
+        b(:,1)[2] = a(4,:)
+    end if
+
+    sync all
+
+    print  *, this_image(), ": b = ", b(:,1)
+end program

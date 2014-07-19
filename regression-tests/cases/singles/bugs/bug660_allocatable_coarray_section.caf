@@ -1,0 +1,53 @@
+! These tests verify that coarray arguments are being passed in correctly. The
+! main thing to check for is that the compiler should not do copyin/copyout when
+! the formal parameter is also a coarray.
+
+module subarg_tests
+    integer, parameter :: N = 10
+    contains
+
+    subroutine test1(a,b)
+        ! formal args are assumed shape
+        integer :: a(:)[*], b(:)
+
+        a(:)[2] = b(:)
+    end subroutine
+
+end module
+
+program main
+    use subarg_tests
+    implicit none
+
+    integer :: ti, ni
+    integer, allocatable :: a3(:)[:], b3(:)
+
+    type T
+        integer :: c(2,N)
+    end type
+
+    type(T) :: a[*], b
+
+    ti = this_image()
+    ni = num_images()
+
+
+    allocate( a3(2*N)[*], b3(2*N) )
+
+    ! pass a contiguous slice of an allocatable
+
+    if (ti == 1) print *, "passing contiguous slice of 1D allocatable array"
+
+    b3 = ti
+    a3 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a3(1:N:2),b3(1:N:2))
+
+    sync all
+
+    print *, "4: (",ti, ") a1 = ", a3
+
+end program
+

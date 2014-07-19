@@ -1,0 +1,18 @@
+      ! compiler should give an error for these coarray declarations
+
+      module test
+          contains
+          subroutine foo1()
+              integer :: x[*]
+          end subroutine
+      end module
+
+      program bug654
+          use test
+          implicit none
+          interface
+              subroutine foo2()
+                  integer :: y[*]
+              end subroutine
+          end interface
+      end program bug654

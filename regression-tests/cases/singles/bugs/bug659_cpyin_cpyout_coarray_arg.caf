@@ -1,0 +1,50 @@
+module subarg_tests
+    integer, parameter :: N = 10
+    contains
+
+    subroutine test1(a,b)
+        ! formal args are assumed shape
+        integer :: a(:)[*], b(:)
+
+        a(:)[2] = b(:)
+    end subroutine
+
+end module
+
+program main
+    use subarg_tests
+    implicit none
+
+    integer :: ti, ni
+    integer :: a1(2*N)[*], b1(2*N)
+    integer :: a2(2,N)[*], b2(2,N)
+    integer, allocatable :: a3(:)[:], b3(:)
+
+    type T
+        integer :: c(2,N)
+    end type
+
+    type(T) :: a[*], b
+
+    ti = this_image()
+    ni = num_images()
+
+    !------------------------------------------------------
+
+    ! pass non-contiguous section of 2D array -- should NOT do copyin/copyout
+    ! for coarray argument
+    if (ti == 1) print *, "passing non-contiguous section of 2D array"
+
+    b2 = ti
+    a2 = 0
+
+    sync all
+
+    if (ti == 1) call test1(a2(1,1:N),b2(1,1:N))
+
+    sync all
+
+    print *, "3: (",ti, ") a2 = ", a2(1,1:N)
+
+end program
+

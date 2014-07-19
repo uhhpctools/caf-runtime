@@ -1,0 +1,39 @@
+! Some tests to test remote access on allocatable components of coarrays
+! Author: Deepak Eachempati
+
+           module tests
+
+           public :: test1
+    
+            type grid_t
+              integer :: t
+              integer, pointer :: d(:)
+            end type 
+
+            contains
+
+            subroutine test1(my_grid)
+
+            type(grid_t) :: my_grid[*]
+            integer :: t
+
+            t = my_grid%d(1)
+
+            end subroutine
+
+           end module tests
+
+           program main
+            use tests
+
+            type(grid_t) :: my_grid[*]
+
+            allocate( my_grid%d(10) )
+
+            my_grid%d = this_image()
+            sync all
+
+            call test1(my_grid)
+
+            deallocate( my_grid%d )
+           end program

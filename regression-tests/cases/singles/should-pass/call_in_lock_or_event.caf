@@ -1,0 +1,30 @@
+program call_in_lock_or_event
+    use, intrinsic :: iso_fortran_env
+
+    type(lock_type) :: lk[*]
+    type(event_type) :: ev[*]
+    integer :: a(5)
+
+    if (this_image() == num_images()) then
+        event post (ev[1])
+    else
+        event post (ev[this_image()+1])
+    end if
+
+    event wait (ev)
+
+    print *, this_image(), " ... done waiting on event"
+
+    if (this_image() == num_images()) then
+        lock (lk[1])
+        call sleep(1)
+        unlock (lk[1])
+    else
+        lock (lk[this_image()+1])
+        call sleep(1)
+        unlock (lk[this_image()+1])
+    end if
+
+    print *, this_image(), " ... done acquiring/releasing lock"
+
+end program

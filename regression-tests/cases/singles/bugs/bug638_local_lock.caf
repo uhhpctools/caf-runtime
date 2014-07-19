@@ -1,0 +1,10 @@
+      program locktest
+
+      USE, INTRINSIC :: ISO_FORTRAN_ENV
+
+      TYPE(LOCK_TYPE) :: lock_var[*]
+
+      LOCK(lock_var)
+      UNLOCK(lock_var)
+
+      end program

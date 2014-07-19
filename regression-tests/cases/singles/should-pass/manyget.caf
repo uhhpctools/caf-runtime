@@ -1,0 +1,121 @@
+
+
+          module timers
+          integer, private :: t1(8), t2(8)
+          double precision, private :: t
+
+          contains
+          subroutine start_time()
+            call date_and_time(values=t1)
+          end subroutine
+
+          subroutine end_time()
+            call date_and_time(values=t2)
+            t = 3600*(t2(5)-t1(5)) + 60*(t2(6)-t1(6)) + (t2(7)-t1(7))   &
+                + .001*(t2(8)-t1(8))
+          end subroutine
+
+          subroutine print_time()
+              write (*,"('Time is: ',F5.3,A)") t,"s"
+          end subroutine
+          end module
+
+          program main
+                use caf_types
+                use timers
+                integer, parameter :: N = 4*1024*1024
+                integer (1), save :: a(N)[*], b(N)
+                integer :: i, j
+                integer :: num_blocks, block_size, stride
+                character (len=32) :: buf
+                type(caf_wait_handle) :: s1
+
+                num_blocks = M
+
+                if (iargc() /= 3 .and. iargc() /= 0) then
+                  if (this_image() == 1) then
+                   print *,"usage: ./exec ",                            &
+                           "[num_blocks block_size stride]"
+                  end if
+                  stop
+                end if
+                if (iargc() == 3) then
+                    call getarg(1, buf)
+                    read (buf,*) num_blocks
+                    call getarg(2, buf)
+                    read (buf,*) block_size
+                    call getarg(3, buf)
+                    read (buf,*) stride
+                else
+                    num_blocks = 64*1024
+                    block_size = 32
+                    stride = 64
+                end if
+
+                if ((num_blocks*stride) > N) then
+                  if (this_image() == 1) then
+                    print *, "num_blocks*stride should be less than ",  &
+                             "or equal to ", N
+                  end if
+                  stop
+                end if
+                if (block_size > stride) then
+                  if (this_image() == 1) then
+                    print *, "block_size should be less than or equal ",&
+                             "to stride"
+                  end if
+                  stop
+                end if
+
+                a = this_image()
+                b = this_image()
+
+                sync all
+
+                if (this_image() == 1) then
+                  print *, "============="
+                  print *, "Many Get Test"
+                  print *, "============="
+                  print *, "num_blocks = ", num_blocks
+                  print *, "block_size = ", block_size
+                  print *, "stride     = ", stride
+                  print *, "============="
+
+                  call start_time()
+                  do i=1,num_blocks
+                      if (mod(i,1024) == 0) then
+                        print *, "i = ", i
+                      end if
+                      !dir$ caf_nowait(s1)
+                      b((i-1)*stride+1:(i-1)*stride+block_size) =       &
+                      a((i-1)*stride+1:(i-1)*stride+block_size)[num_images()]
+                  end do
+                  call end_time()
+                end if
+
+                sync all
+
+                ! verify
+
+                if (this_image() == 1) then
+                  do i=1,num_blocks
+                      a((i-1)*stride+1:(i-1)*stride+block_size) = num_images()
+                  end do
+
+                  do i =1,N
+                    if (a(i) /= b(i)) then
+                        print *, "i = ", i, a(i), b(i)
+                        print *, "FAILURE"
+                        ERROR STOP
+                    end if
+                  end do
+                  print *, "SUCCESS"
+                end if
+
+                sync all
+
+                if (this_image() == 1) then
+                  !call print_time()
+                end if
+
+            end program

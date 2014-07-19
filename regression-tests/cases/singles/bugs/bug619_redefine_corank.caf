@@ -1,0 +1,33 @@
+      module tests
+      contains
+      subroutine test1(a)
+        integer :: a(:)[2,*]
+
+        integer :: l1,l2,u1,u2
+
+        ! these functions use the dope vector that is passed in. corank
+        ! is still set to 1, even though a has corank 2
+        l1 = lcobound(a,1)
+        l2 = lcobound(a,2)
+        u1 = ucobound(a,1)
+        u2 = ucobound(a,2)
+
+        print *, "cobounds are ", l1, u1, l2, u2
+
+      end subroutine
+      end module
+
+      program main
+        use tests
+
+        integer, allocatable :: b(:)[:]
+
+
+        allocate( b(10)[*] )
+
+        if (this_image() == 1) then
+            ! compiler passes in dope vector for b, which has corank=1
+            call test1(b)
+        end if
+
+      end program

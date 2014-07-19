@@ -1,0 +1,62 @@
+README for UH CAF Regression Test Suite.
+
+### Introduction ###
+
+This testsuite, or more appropriately, regression testsuite is meant to be
+comprised of bits of code that elicit either compile time bugs or runtime bugs
+in OpenUH CAF implementation. Any code found cause an error in either
+compiliation or execution of the resulting binary (or use of library) should
+be preserved in this testing frame work to ensure that the presence of such
+bugs can be detected in future versions of OpenUH.
+
+### Introduction ###
+
+Coarray Fortran (CAF) single-file test cases are added in regression-tests/cases/singles/
+
+### Quick Start - How To Run Tests ###
+
+To run only the CAF test suite, make sure the OpenUH compilers is installed
+with coarray support.
+
+For compiling, type:
+regression-tests$ make compile-tests
+
+For executing, type:
+regression-tests$ make execute-tests
+
+### How To Add A Test ###
+
+Step 1: Put the file(s) in the appropriate place for Type:
+
+* Type 1: a single source file testing for correct behavior
+	Place single source file into: regression-tests/cases/singles/caf/should-pass
+
+* Type 2: a single source file testing incorrect code which should fail
+	Place single source file into: regression-tests/cases/singles/caf/should-fail
+
+* Type 3: a single source file testing a compilation issue(s)
+	Place single source file into: regression-tests/cases/singles/caf/bugs
+
+* Type 4: a multi source file testing a compilation issue(s)
+	Place multi source file into: TBD
+
+* Type 5: a mult source file testing for expected runtime behavior
+	Place multi source file into: TBD
+
+Step 2: Run the test using 4 images, and add the sorted output file in
+${regression-tests}/output/CAF-should-pass. The output file should have the format
+<file>.caf.x.t=4.out.  Example: for new testcase a.caf:
+
+    uhcaf a.caf -o a.caf.x
+    cafrun -n 4 a.caf.x > out
+    sort out > a.caf.x.t=4.out
+    mv a.caf.x.t=4.out ${regression-tests}/output/CAF-should-pass
+
+### Questions? ###
+
+Deepak Eachempati (deepak@cs.uh.edu),
+Siddhartha Jana (sidjana@cs.uh.edu)
+
+or
+
+OpenUH Team (openuh@cs.uh.edU)

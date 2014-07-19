@@ -1,0 +1,130 @@
+! More component acccess tests for coarrays
+
+! Here we create a coarray of derived type, as well as an object having a
+! coarray component. The purpose here is to test various legal component
+! selection statements that are co-indexed.
+
+        program caf_case2
+
+        implicit none
+
+        type T6
+            integer :: dummy
+            integer :: e2
+        end type
+
+        type T5
+            integer :: dummy
+            type(T6) :: e1
+        end type
+
+        type T4
+            integer ::  dummy
+            type(T5) :: d(4)
+        end type
+
+        type T3
+            integer :: dummy
+            type(T4) :: c1
+        end type
+
+        type T2
+            integer :: dummy
+            type(T3), allocatable :: b(:)[:]
+        end type
+
+        type T1
+            integer :: dummy
+            type(T2) :: a2
+        end type
+
+        type(T1) :: a1
+
+        type(T3), allocatable :: b1(:)[:]
+        integer :: i
+
+
+        allocate( a1%a2%b(4)[*] )
+        allocate( b1(1)[*] )
+
+        a1%a2%b(1)%c1%d(:)%e1%e2 = (/ (10*this_image()+i, i=1,4) /)
+        a1%a2%b(1)%c1%d(:)%dummy = (/ (100*this_image()+i, i=1,4) /)
+        a1%a2%b(1)%c1%dummy      = 1000*this_image()
+        b1(1)%c1%d(:)%e1%e2      = (/ (10000*this_image()+i, i=1,4) /)
+        b1(1)%c1%d(:)%dummy      = (/ (100000*this_image()+i, i=1,4) /)
+        b1(1)%c1%dummy           = 1000000*this_image()
+
+        sync all
+
+        if (this_image() == 1) then
+
+            print *, " a1%a2%b(1)%c1%d(:)%e1%e2      = ",  &
+                       a1%a2%b(1)%c1%d(:)%e1%e2
+            print *, " a1%a2%b(1)[1]%c1%d(:)%e1%e2   = ",  &
+                       a1%a2%b(1)[1]%c1%d(:)%e1%e2
+            print *, " a1%a2%b(1)[2]%c1%d(:)%e1%e2   = ",  &
+                       a1%a2%b(1)[2]%c1%d(:)%e1%e2
+            print *, " a1%a2%b(1)[3]%c1%d(:)%e1%e2   = ",  &
+                       a1%a2%b(1)[3]%c1%d(:)%e1%e2
+            print *, " a1%a2%b(1)[4]%c1%d(:)%e1%e2   = ",  &
+                       a1%a2%b(1)[4]%c1%d(:)%e1%e2
+
+            print *, " a1%a2%b(1)%c1%d(:)%dummy      = ", &
+                       a1%a2%b(1)%c1%d(:)%dummy
+            print *, " a1%a2%b(1)[1]%c1%d(:)%dummy   = ", &
+                       a1%a2%b(1)[1]%c1%d(:)%dummy
+            print *, " a1%a2%b(1)[2]%c1%d(:)%dummy   = ", &
+                       a1%a2%b(1)[2]%c1%d(:)%dummy
+            print *, " a1%a2%b(1)[3]%c1%d(:)%dummy   = ", &
+                       a1%a2%b(1)[3]%c1%d(:)%dummy
+            print *, " a1%a2%b(1)[4]%c1%d(:)%dummy   = ", &
+                       a1%a2%b(1)[4]%c1%d(:)%dummy
+
+            print *, " a1%a2%b(1)%c1%dummy           = ", &
+                       a1%a2%b(1)%c1%dummy
+            print *, " a1%a2%b(1)[1]%c1%dummy        = ", &
+                       a1%a2%b(1)[1]%c1%dummy
+            print *, " a1%a2%b(1)[2]%c1%dummy        = ", &
+                       a1%a2%b(1)[2]%c1%dummy
+            print *, " a1%a2%b(1)[3]%c1%dummy        = ", &
+                       a1%a2%b(1)[3]%c1%dummy
+            print *, " a1%a2%b(1)[4]%c1%dummy        = ", &
+                       a1%a2%b(1)[4]%c1%dummy
+
+
+            print *, " b1(1)%c1%d(:)%e1%e2           = ", &
+                       b1(1)%c1%d(:)%e1%e2
+            print *, " b1(1)[1]%c1%d(:)%e1%e2        = ", &
+                       b1(1)[1]%c1%d(:)%e1%e2
+            print *, " b1(1)[2]%c1%d(:)%e1%e2        = ", &
+                       b1(1)[2]%c1%d(:)%e1%e2
+            print *, " b1(1)[3]%c1%d(:)%e1%e2        = ", &
+                       b1(1)[3]%c1%d(:)%e1%e2
+            print *, " b1(1)[4]%c1%d(:)%e1%e2        = ", &
+                       b1(1)[4]%c1%d(:)%e1%e2
+
+            print *, " b1(1)%c1%d(:)%dummy           = ", &
+                       b1(1)%c1%d(:)%dummy
+            print *, " b1(1)[1]%c1%d(:)%dummy        = ", &
+                       b1(1)[1]%c1%d(:)%dummy
+            print *, " b1(1)[2]%c1%d(:)%dummy        = ", &
+                       b1(1)[2]%c1%d(:)%dummy
+            print *, " b1(1)[3]%c1%d(:)%dummy        = ", &
+                       b1(1)[3]%c1%d(:)%dummy
+            print *, " b1(1)[4]%c1%d(:)%dummy        = ", &
+                       b1(1)[4]%c1%d(:)%dummy
+
+            print *, " b1(1)%c1%dummy                = ", &
+                       b1(1)%c1%dummy
+            print *, " b1(1)[1]%c1%dummy             = ", &
+                       b1(1)[1]%c1%dummy
+            print *, " b1(1)[2]%c1%dummy             = ", &
+                       b1(1)[2]%c1%dummy
+            print *, " b1(1)[3]%c1%dummy             = ", &
+                       b1(1)[3]%c1%dummy
+            print *, " b1(1)[4]%c1%dummy             = ", &
+                       b1(1)[4]%c1%dummy
+
+        end if
+
+        end program

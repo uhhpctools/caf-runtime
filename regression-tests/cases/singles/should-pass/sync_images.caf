@@ -1,0 +1,45 @@
+    !================================
+    ! Testing Sync Images:
+    !================================
+
+    PROGRAM syncImage
+      integer ::me,ne,p[*],image_list(2)
+      me = this_image()
+      ne = num_images()
+      if(me==1) then
+          p =1
+      else
+          sync images(me-1) ! test for 1 image
+          p = p[me-1] +1
+      end if
+      if(me<ne) then
+        sync images (me+1)
+      end if
+      if(p/=me) then
+        print *,me,"1 to 1 Test Fail",":",p
+      else
+        print *,me,"1 to 1 Test Pass",":",p
+      end if
+      sync images(*) ! test for all to all, like sync all
+      if(me==1) then
+        p[2] = 100
+        sync images (*) !test for 1 to all
+        if(p/=200) then
+            print *,me,":many to many test fail. Value of p: ",p
+        end if
+      else if(me==2) then
+        p[1] = 200
+        sync images (*)
+        if(p/=100) then
+            print *,me,":many to many test fail. Value of p: ",p
+        end if
+      else
+        DATA image_list /1, 2/
+        sync images (image_list) !test for some image
+        if(p[1]/=200 .OR. p[2]/=100) then
+            print *,me,"Many to some Test Fail"
+        else
+            print *,me,"Many to some Test Pass"
+        end if
+      end if
+    END PROGRAM syncImage

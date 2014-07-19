@@ -1,0 +1,61 @@
+! Non-contiguous Test
+
+! A more advanced non-contiguous transfer test, where the array is an
+! allocatable component of a coarray.
+
+      module types
+        integer, parameter :: N=5
+        type Domain
+          integer*8 :: padding
+          integer, allocatable :: a(:,:,:)
+        end type
+      end module
+
+      module subs
+        contains
+        subroutine noncontig_transfer_test(d)
+          use types
+          implicit none
+          type(Domain),intent(inout) :: d[2,*]
+          integer :: i
+
+          d%a(1,2,:) = d[1,2]%a(1,2,:)
+
+          print '(a12a20)', "d%a(1,2,:)", "d[1,2]%a(1,2,:)"
+          do i=1,N
+            print '(i8i17)', d%a(1,2,i), d[1,2]%a(1,2,i)
+          end do
+
+        end subroutine
+      end module
+
+      program main
+        use types
+        use subs
+        implicit none
+
+        type(Domain),allocatable :: d[:]
+        integer :: i,j,k,m
+
+        allocate( d[*] )
+
+        allocate( d%a(N,N,N) )
+
+        m = 1
+        do k=1,N
+          do j=1,N
+            do i=1,N
+              d%a(i,j,k) = this_image()*1000 + m
+              m = m + 1
+            end do
+          end do
+        end do
+
+        sync all
+
+        if (this_image() == 1) then
+            call noncontig_transfer_test(d)
+        end if
+
+        sync all
+      end program

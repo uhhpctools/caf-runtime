@@ -1,0 +1,13 @@
+program bug672
+    integer, target, save :: a = 10
+    integer, save :: b[*] = 10
+    integer, target, save :: c(10) = 10
+    integer, save :: d(10)[*] = 10
+
+    if (a /= 10 .or. b /= 10 .or. &
+        any(c /= 10) .or. any(d /= 10)) then
+        print *, "FAIL"
+    else
+        print *, "SUCCESS"
+    end if
+end program bug672

@@ -1,0 +1,37 @@
+! Vector Subscript Read Test
+
+! We test the support for handling co-indexed expressions with "vector"
+! subscripts. By this, we mean a subscript that is itself an array
+! expression. Here, a coarray is initialized, and image 1 reads a subset
+! of the elements of this coarray on image K, given by the expression
+! 2*a(1:M). The values read and are then compared with the known correct
+! values for verification.
+
+      program vector_test
+        implicit none
+        integer, parameter :: K = 2
+        integer, parameter :: M = 5
+        integer, parameter :: N = 4*M
+        integer :: i
+        integer :: vals(M)
+        integer :: correct_vals(M)
+        integer :: a(N)[*]
+
+
+        ! a(:) on image i = i, i+1, ..., i+n-1
+        a(:) = (/ (this_image()+i-1, i=1,N) /)
+
+        sync all
+
+        if (this_image() == 1) then
+          vals(1:M) = a( 2*a(1:M) )[K]
+          correct_vals = (/ (K+i-1, i=2,2*M,2) /)
+          if ( any(vals /= correct_vals) ) then
+              print *, "FAIL: ", vals
+              STOP 1
+          else
+              print *, "SUCCESS"
+          end if
+        end if
+
+      end program

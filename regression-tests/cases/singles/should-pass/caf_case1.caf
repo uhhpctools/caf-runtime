@@ -1,0 +1,77 @@
+! Component accesses tests for coarrays
+
+! Here we create a coarray of derived type, as well as an object having a
+! coarray component. The purpose here is to test various legal component
+! selection statements that are co-indexed.
+
+
+        program caf_case1
+
+        implicit none
+
+        type T4
+            integer :: d,d1
+            integer :: c2
+        end type
+
+        type T3
+            integer :: d
+            type(T4) :: c1
+        end type
+
+        type T2
+            integer :: d
+            type(T3), allocatable :: b(:)[:]
+        end type
+
+        type T1
+            integer :: d
+            type(T2) :: a2
+        end type
+
+        type(T1) :: a1
+
+        type(T3), allocatable :: b1(:)[:]
+        integer :: i
+
+         allocate (b1(4)[*] )
+         allocate( a1%a2%b(4)[*] )
+
+         b1(:)%c1%c2 = (/ (10*this_image()+i, i=1,4) /)
+         b1(:)%d = (/ (100*this_image()+i, i=1,4) /)
+
+         a1%a2%b(:)%c1%c2 = (/ (1000*this_image()+i, i=1,4) /)
+         a1%a2%b(:)%d = (/ (10000*this_image()+i, i=1,4) /)
+
+         sync all
+
+         if (this_image() == 1) then
+             print *, "b1(:)%c1%c2         = ",  b1(:)%c1%c2
+             print *, "b1(:)[1]%c1%c2      = ",  b1(:)[1]%c1%c2
+             print *, "b1(:)[2]%c1%c2      = ",  b1(:)[2]%c1%c2
+             print *, "b1(:)[3]%c1%c2      = ",  b1(:)[3]%c1%c2
+             print *, "b1(:)[4]%c1%c2      = ",  b1(:)[4]%c1%c2
+
+             print *, "b1(:)%d             = ",  b1(:)%d
+             print *, "b1(:)[1]%d          = ",  b1(:)[1]%d
+             print *, "b1(:)[2]%d          = ",  b1(:)[2]%d
+             print *, "b1(:)[3]%d          = ",  b1(:)[3]%d
+             print *, "b1(:)[4]%d          = ",  b1(:)[4]%d
+
+             print *, "a1%a2%b(:)%c1%c2    = ",  a1%a2%b(:)%c1%c2
+             print *, "a1%a2%b(:)[1]%c1%c2 = ",  a1%a2%b(:)[1]%c1%c2
+             print *, "a1%a2%b(:)[2]%c1%c2 = ",  a1%a2%b(:)[2]%c1%c2
+             print *, "a1%a2%b(:)[3]%c1%c2 = ",  a1%a2%b(:)[3]%c1%c2
+             print *, "a1%a2%b(:)[4]%c1%c2 = ",  a1%a2%b(:)[4]%c1%c2
+
+             print *, "a1%a2%b(:)%d        = ",  a1%a2%b(:)%d
+             print *, "a1%a2%b(:)[1]%d     = ",  a1%a2%b(:)[1]%d
+             print *, "a1%a2%b(:)[2]%d     = ",  a1%a2%b(:)[2]%d
+             print *, "a1%a2%b(:)[3]%d     = ",  a1%a2%b(:)[3]%d
+             print *, "a1%a2%b(:)[4]%d     = ",  a1%a2%b(:)[4]%d
+         end if
+
+         sync all
+
+
+        end program

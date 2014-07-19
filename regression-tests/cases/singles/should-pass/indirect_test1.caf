@@ -1,0 +1,50 @@
+! Indirect coarray accesses
+
+! This tests support for "indirect" accesses, via a pointer component of a
+! coarray of derived type. Image 1 writes to a buffer on image 2, and then
+! image 2 reads from that buffer to confirm that the write went through
+! correctly.
+
+      program main
+        type T2
+            integer :: x, y
+            integer, allocatable :: a1(:)
+        end type
+        type T1
+          integer :: x, y, z
+          type(T2), pointer :: p(:)
+        end type
+
+        type(T1), allocatable:: a(:)[:]
+        integer :: t(100)
+        integer :: iam
+        integer :: u(2)[*]
+        integer :: lb, ub
+
+
+        iam = this_image()
+        allocate ( a(10)[*] )
+        allocate ( a(2)%p(1) )
+        allocate ( a(2)%p(1)%a1(this_image()*10) )
+
+        a(2)%p(1)%a1(:) = iam
+        sync all
+
+        t = 0
+        if (iam == 1) then
+            print *, "a(2)[3]%p(1)%a1 = ", a(2)[3]%p(1)%a1
+            a(2)[2]%p(1)%a1(::2) = 100
+        end if
+
+        sync all
+
+        if (iam == 2) then
+            print *, "image 2: a(2)%p(1)%a1 = ", a(2)%p(1)%a1
+        end if
+
+        sync all
+
+        deallocate( a(2)%p(1)%a1 )
+        deallocate( a(2)%p )
+
+      end program

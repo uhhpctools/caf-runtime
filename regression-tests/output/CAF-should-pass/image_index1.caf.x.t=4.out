@@ -1,0 +1,4 @@
+ image idx should be: 0 image_index(C,(/3,3/))= 0
+ image idx should be: 2 image_index(B,(/3,1/))= 2
+ image idx should be: 4 image_index(A,(/1,0,1/))= 4
+ testing image_index()

@@ -1,0 +1,26 @@
+      module subs
+        contains
+        subroutine sub_test(z)
+          integer :: z(:,:)
+          integer, save :: E(4,4)[*]
+
+          E  = this_image()
+          sync all
+
+          if (this_image() == 2) then
+             z = 100
+             z(1,1:2) = E(1,1:2)[1]
+             print *, "z          : ", z(:,:)
+             print *, "z should be: ",  &
+                     (/ 1,100,100,100,1,100,100,100,100,100,100,100,100,&
+                        100,100,100 /)
+          end if
+        end subroutine
+      end module
+
+      program main
+        use subs
+        integer :: z(4,4)
+
+        call sub_test(z)
+      end program

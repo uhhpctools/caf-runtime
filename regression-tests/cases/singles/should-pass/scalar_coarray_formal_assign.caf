@@ -1,0 +1,55 @@
+        module bug650
+          implicit none
+          contains
+
+           subroutine test1(a,b)
+             integer :: a [*]
+             integer :: b[*]
+             integer :: ti
+             b  = a[1]
+           end subroutine test1
+
+           subroutine test2(a,b)
+             integer :: a [*]
+             integer :: b[*]
+             integer :: ti
+             b[1]  = a
+           end subroutine test2
+
+        end module
+
+        program main
+            use bug650
+
+            implicit none
+
+            integer :: a[*], b[*]
+            integer :: me
+
+            me = this_image()
+
+            if (me == 1) then
+                a = me
+                b = 100
+
+                call test1(a,b)
+
+                if (b /= me) then
+                    print *, "wrong value for b: ", b
+                else
+                    print *, "success (test1)"
+                end if
+
+                a = me
+                b = 100
+
+                call test2(a,b)
+
+                if (b /= me) then
+                    print *, "wrong value for b: ", b
+                else
+                    print *, "success (test2)"
+                end if
+
+            end if
+        end program

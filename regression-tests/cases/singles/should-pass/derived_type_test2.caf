@@ -1,0 +1,60 @@
+! Derived Type Test 2
+
+! Same as derived_type_test1, except this is testing with an array of
+! character strings instead of an array of integers.
+
+        program main
+          integer, parameter :: N = 10
+          type T1
+              integer :: x,y,z
+              character (len=5) :: b(N)
+          end type
+
+          type(T1), allocatable :: a1[:]
+          type(T1) :: a2[*]
+          integer :: iam
+          character (len=5) :: t(N)
+
+          ! test with allocatable
+
+          allocate ( a1[*] )
+
+          a1%b(1:N:2) = "odd"
+          a1%b(2:N:2) = "even"
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:N/2) = a1[2]%b(1:10:2)
+            t(N/2+1:N) = a1[2]%b(2:10:2)
+            print *, "Allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ "odd", "odd", "odd", "odd", "odd", &
+                  "even ", "even ", "even ", "even ", "even " /)
+          end if
+
+          sync all
+
+          ! test with non-allocatable
+
+          a2%b(1:N:2) = "odd"
+          a2%b(2:N:2) = "even"
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:N/2) = a2[2]%b(1:N:2)
+            t(N/2+1:N) = a2[2]%b(2:N:2)
+            print *, "Non-allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ "odd", "odd", "odd", "odd", "odd", &
+                  "even ", "even ", "even ", "even ", "even " /)
+          end if
+
+        end program

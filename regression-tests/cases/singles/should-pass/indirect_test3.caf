@@ -1,0 +1,49 @@
+! Indirect coarray accesses
+
+! This tests allocation of an allocatable component of a coarray of derived
+! type. Then, image images writes to this allocated array, and image 1 reads
+! the allocated array from the other images.
+
+
+      program main
+        implicit none
+
+        type T1
+            integer :: x,y,z
+            integer, allocatable :: b(:,:)
+        end type
+
+        integer, parameter :: N = 4
+        integer :: i
+        integer :: iam
+        type(T1), allocatable :: a(:)[:,:]
+
+        iam = this_image()
+
+        allocate ( a(3:5)[3:4, 3:*] )
+        allocate ( a(3)%b(iam : (iam + N-1), iam : (iam + N-1)))
+        allocate ( a(4)%b(iam : (iam + N-1), iam : (iam + N-1)))
+        allocate ( a(5)%b(iam : (iam + N-1), iam : (iam + N-1)))
+
+        do i = iam,iam+N-1
+            a(3)%b(:,i) = (/ (N*iam+i, i=0,N-1) /)
+        end do
+        a(4)%b(:,:) = 0
+        a(5)%b(:,:) = 0
+
+        sync all
+
+        if (iam == 1) then
+            print *, "a(3)[3,3]%b(:,:)   : ", a(3)[3,3]%b(:,:)
+            print *, "a(3)[3,3]%b(1:,1:) : ", a(3)[3,3]%b(1:,1:)
+            print *, "a(3)[4,3]%b(:)     : ", a(3)[4,3]%b(:,:)
+            print *, "a(3)[4,3]%b(2:,2:) : ", a(3)[4,3]%b(2:,2:)
+            print *, "a(3)[3,4]%b(:)     : ", a(3)[3,4]%b(:,:)
+            print *, "a(3)[3,4]%b(3:,3:) : ", a(3)[3,4]%b(3:,3:)
+            print *, "a(3)[4,4]%b(:)     : ", a(3)[4,4]%b(:,:)
+            print *, "a(3)[4,4]%b(4:,4:) : ", a(3)[4,4]%b(4:,4:)
+        end if
+
+        sync all
+
+      end program

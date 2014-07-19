@@ -1,0 +1,21 @@
+      ! seg faults when compiled with -O3
+
+      program quick
+        type grid_t
+          integer :: t
+          integer, pointer :: c(:)
+        end type
+
+        type(grid_t) :: my_grid
+
+        allocate( my_grid%c(8) )
+
+        ! the array access here will cause seg fault because LNO-PREOPT
+        ! propogates a 0 into the base address of c.
+        my_grid%c = 100
+
+       print *, "val = ", my_grid%c
+
+       !deallocate( my_grid%c )
+
+      end program

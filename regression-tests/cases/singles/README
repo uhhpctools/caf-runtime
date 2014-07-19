@@ -1,0 +1,9 @@
+These contain single source file CAF programs. All programs to be tested
+should have a .caf file extension.
+
+The following a description of the sub-directories:
+.
+|-- bugs                              # regressions of the past, present, & future
+|-- should-fail                       # where to put files that should always FAIL
+|-- should-pass                       # where to put files that should always PASS
+`-- select                            # where to put selected tests (singles-select)

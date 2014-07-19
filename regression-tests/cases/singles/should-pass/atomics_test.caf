@@ -1,0 +1,267 @@
+!-------------------------------------------------
+! atomics_test
+!
+! Tests various atomics subroutines:
+!
+!   atomic_define
+!   atomic_ref
+!-------------------------------------------------
+
+module atomics_tests
+    use iso_fortran_env
+    integer, parameter :: N = 1000
+    integer, parameter:: c = 10
+    integer :: a(N)[*]
+    integer (kind=atomic_int_kind) :: a1[*]
+    logical (kind=atomic_logical_kind) :: b1[*]
+    logical (kind=1) :: val
+
+    contains
+
+        subroutine atomic_define_ref_test()
+
+            if (this_image() == 1) then
+                print *, "ATOMIC DEFINE/REF TEST"
+            end if
+
+            a(:) = 0
+            b1 = .false.
+
+            !---------------------------------------------------------
+            ! point-to-point synchronization test using atomic_define
+            ! and atomic_ref
+            !---------------------------------------------------------
+
+            if (this_image() == 1) then
+                a(:) = c
+                sync memory
+                call atomic_define (b1[2], .true.)
+            else if (this_image() == 2) then
+                val = .false.
+                do while (.not. val)
+                  call atomic_ref(val, b1)
+                end do
+                sync memory
+
+                a(:) = a(:)[1]
+                if (any(a(:) /= c)) then
+                    print *, "FAIL"
+                else
+                    print *, "SUCCESS"
+                end if
+
+            end if
+        end subroutine atomic_define_ref_test
+
+        subroutine atomic_add_test()
+            integer (kind=atomic_int_kind) :: c
+
+            if (this_image() == 1) then
+                print *, "ATOMIC ADD TEST"
+            end if
+
+            a1 = 0
+
+            !------------------------------------------------------------
+            ! image 1 waits for updates from all other images, and checks
+            ! that they were made atomically
+            !------------------------------------------------------------
+
+            if (this_image() == 1) then
+                sync images (*)
+
+                sync images (*)
+
+                if (a1 /= (num_images()-1)) then
+                    print *, "FAIL"
+                else
+                    print *, "SUCCESS"
+                end if
+            else
+                sync images (1)
+
+                call atomic_add ( a1[1], 1, c )
+
+                sync images (1)
+
+            end if
+        end subroutine atomic_add_test
+
+        subroutine atomic_and_test()
+            integer (kind=atomic_int_kind) :: c
+            integer :: val
+
+            if (this_image() == 1) then
+                print *, "ATOMIC AND TEST"
+            end if
+
+            a1 = X'FFFF'
+
+            !------------------------------------------------------------
+            ! image 1 waits for updates from all other images, and checks
+            ! that they were made atomically
+            !------------------------------------------------------------
+
+            if (this_image() == 1) then
+                val = a1
+                do i=2,num_images()
+                  val = ibclr(val, i-1)
+                end do
+
+                sync images (*)
+
+                sync images (*)
+
+                if (a1 /= val) then
+                    print *, "FAIL"
+                else
+                    print *, "SUCCESS"
+                end if
+            else
+                sync images (1)
+
+                call atomic_and ( a1[1], ibclr(a1, this_image()-1), c )
+
+                sync images (1)
+
+            end if
+        end subroutine atomic_and_test
+
+        subroutine atomic_or_test()
+            integer (kind=atomic_int_kind) :: c
+            integer :: val
+
+            if (this_image() == 1) then
+                print *, "ATOMIC OR TEST"
+            end if
+
+            a1 = X'0000'
+
+            !------------------------------------------------------------
+            ! image 1 waits for updates from all other images, and checks
+            ! that they were made atomically
+            !------------------------------------------------------------
+
+            if (this_image() == 1) then
+                val = a1
+                do i=2,num_images()
+                  val = ibset(val, i-1)
+                end do
+
+                sync images (*)
+
+                sync images (*)
+
+                if (a1 /= val) then
+                    print *, "FAIL"
+                else
+                    print *, "SUCCESS"
+                end if
+            else
+                sync images (1)
+
+                call atomic_or ( a1[1], ibset(a1, this_image()-1), c )
+
+                sync images (1)
+
+            end if
+        end subroutine atomic_or_test
+
+        subroutine atomic_xor_test()
+            integer :: i,j
+            integer (kind=atomic_int_kind) :: c
+            integer (kind=atomic_int_kind), save:: val[*]
+
+            if (this_image() == 1) then
+                print *, "ATOMIC XOR TEST"
+            end if
+
+            a1 = 17655
+
+            !------------------------------------------------------------
+            ! image 1 waits for updates from all other images, and checks
+            ! that they were made atomically
+            !------------------------------------------------------------
+
+            if (this_image() == 1) then
+                val = a1
+                do i=2,num_images()
+                  call atomic_xor ( val, i*33)
+                end do
+
+                sync images (*)
+
+                sync images (*)
+
+                if (a1 /= val) then
+                    print *, "FAIL", a1, val
+                else
+                    print *, "SUCCESS"
+                end if
+            else
+                sync images (1)
+
+                call atomic_xor ( a1[1], this_image()*33, c )
+
+                sync images (1)
+
+            end if
+        end subroutine atomic_xor_test
+
+        subroutine atomic_cas_test()
+            integer (kind=atomic_int_kind) :: old, compare, new
+
+            if (this_image() == 1) then
+                print *, "ATOMIC CAS TEST"
+            end if
+
+
+            !------------------------------------------------------------
+            ! image 1 is updated by only one image via CAS operation.
+            !------------------------------------------------------------
+
+            a1 = 4
+            if (this_image() == 1) then
+                sync images (*)
+
+                sync images (*)
+
+            else
+                sync images (1)
+
+                old = 0
+                new = this_image()*10
+                call atomic_cas ( a1[1], old, a1, new)
+
+                sync images (1)
+
+                if (old == a1) then
+                    if (a1[1] /= new) then
+                        print *, "FAIL"
+                    else
+                        print *, "SUCCESS"
+                    end if
+                end if
+
+            end if
+        end subroutine atomic_cas_test
+
+end module atomics_tests
+
+program atomics_test
+    use atomics_tests
+    implicit none
+
+    call atomic_define_ref_test()
+
+    sync all
+
+    call sleep(1)
+
+    call atomic_add_test()
+    call atomic_and_test()
+    call atomic_or_test()
+    call atomic_xor_test()
+    call atomic_cas_test()
+
+end program

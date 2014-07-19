@@ -1,0 +1,30 @@
+      module  checking
+        contains
+        subroutine check(a,y)
+        integer*8:: a(:)[*], y(:)
+            y =  1 + a(:)[2]
+            print *, "y = ", y
+            print *, "should be ", (/ 3, 3 ,3, 3, 3/)
+        end subroutine
+      end module
+
+      program main
+        use checking
+
+        integer*8, allocatable :: a(:)[:], y(:)
+
+        allocate ( a(5)[*], y(5) )
+
+        a = this_image()
+
+        sync all
+
+        if (this_image() == 1) then
+            y =  1 + a(:)[2]
+            print *, "y = ", y
+            print *, "should be ", (/ 3, 3 ,3, 3, 3/)
+
+            call check(a,y)
+        end if 
+
+      end program

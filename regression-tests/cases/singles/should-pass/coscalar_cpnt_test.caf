@@ -1,0 +1,39 @@
+! Bug 655
+! This is a test for functionality of derived types with scalar coarray
+! components.
+
+program bug655
+    type test_type1
+        integer, allocatable :: z[:]
+    end type
+
+    type test_type2
+        integer, allocatable :: u(:)[:]
+    end type
+
+    type(test_type2) :: b
+    type(test_type1) :: a
+    integer :: bound
+    integer, parameter :: lower_bound=3
+
+    allocate( a%z[lower_bound:*] )
+
+    if (this_image() == 1) then
+        print *, "Now testing with scalar coarray component"
+
+        print *, "* Test 1: allocate the scalar coarray with non-default lcobound"
+
+        write (*,'("lcobound is ", I, " and it should have been ", I)')    &
+            lcobound(a%z,1), lower_bound
+
+        print *, "* Test 2: assign value to scalar coarray component and read it back"
+        a%z = 3
+        write (*,'(I4)') a%z
+
+        print *, "* Test 3: read value of scalar coarray component using coindex"
+        write (*,'(3I4)') a%z[this_image()+lower_bound-1]
+    end if
+
+    deallocate(a%z)
+
+end program

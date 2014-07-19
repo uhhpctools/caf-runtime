@@ -1,0 +1,28 @@
+! Non-Contiguous Access Test
+
+! This is a basic strided read test.
+
+        program noncontig
+            integer, dimension(10,10), codimension[2,*] :: A_coarray
+
+            integer :: x
+
+            do i=1,10
+               A_coarray(i,:) = 10*this_image()+i
+            end do
+            if (this_image() == 1) then
+               do i=1,10
+                   print *, A_coarray(i,:)
+               end do
+            end if
+            sync all
+
+
+            if (this_image() == 1) then
+               A_coarray(2:4,3:5) = A_coarray(7:9,3:5)[1,2]
+               print *, "Resulting array (on image 1):"
+               do i=1,10
+                   print *, A_coarray(i,:)
+               end do
+            end if
+        end program

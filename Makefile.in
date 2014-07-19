@@ -1,0 +1,181 @@
+#
+#  Copyright (C) 2011-2013 University of Houston.  All Rights Reserved.
+#
+#  Copyright (C) 2009-2011 Advanced Micro Devices, Inc.  All Rights Reserved.
+#
+#  Copyright (C) 2000, 2001 Silicon Graphics, Inc.  All Rights Reserved.
+#
+#  This program is free software; you can redistribute it and/or modify it
+#  under the terms of version 2 of the GNU General Public License as
+#  published by the Free Software Foundation.
+#
+#  This program is distributed in the hope that it would be useful, but
+#  WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+#
+#  Further, this software is distributed without any warranty that it is
+#  free of the rightful claim of any third person regarding infringement 
+#  or the like.  Any license provided herein, whether implied or 
+#  otherwise, applies only to this software file.  Patent licenses, if 
+#  any, provided herein do not apply to combinations of this program with 
+#  other software, or any other product whatsoever.  
+#
+#  You should have received a copy of the GNU General Public License along
+#  with this program; if not, write the Free Software Foundation, Inc., 59
+#  Temple Place - Suite 330, Boston MA 02111-1307, USA.
+#
+#  Contact information:  Silicon Graphics, Inc., 1600 Amphitheatre Pky,
+#  Mountain View, CA 94043, or:
+#
+#  http://www.sgi.com
+#
+#  For further information regarding this notice, see:
+#
+#  http://oss.sgi.com/projects/GenInfo/NoticeExplan
+#
+#
+
+
+# To override the prefix installation path, specify an alternate full path for
+# PREFIX. 
+
+PREFIX              = @prefix@
+
+# The directory where all native compiler component build subdirectories
+# are located
+#
+MACHINE_TYPE        = @MACHINE_TYPE@
+COMPILER_TARG_DIR   = @abs_top_builddir@/osprey/targdir
+LIB_BUILD_AREA      = @abs_top_builddir@/osprey/targdir_lib
+LIB2_BUILD_AREA     = @abs_top_builddir@/osprey/targdir_lib2
+
+NATIVE_BUILD_DIR    = osprey/targdir
+NATIVE_BUILD_DIR_LD = osprey/cygnus
+GNUFE_BUILD_DIR     = osprey-gcc-4.2.0
+
+LIB_MACHINE_TYPE    = @LIB_MACHINE_TYPE@
+LIB_BUILD_TARGET    = @LIB_BUILD_TARGET@
+LIB_BUILD_ABI       = @LIB_BUILD_ABI@
+LIB_BUILD_ARCH      = @LIB_BUILD_ARCH@
+LIB_BUILD_HOST      = @LIB_BUILD_HOST@
+
+LIB2_MACHINE_TYPE   = @LIB2_MACHINE_TYPE@
+LIB2_BUILD_TARGET   = @LIB2_BUILD_TARGET@
+LIB2_BUILD_ABI      = @LIB2_BUILD_ABI@
+LIB2_BUILD_ARCH     = @LIB2_BUILD_ARCH@
+LIB2_BUILD_HOST     = @LIB2_BUILD_HOST@
+
+LIB_BUILD_DIR       = osprey/targdir_lib
+LIB2_BUILD_DIR      = osprey/targdir_lib2
+
+TOP_SRCDIR          = @abs_top_srcdir@
+TOP_BUILDDIR        = @abs_top_builddir@
+BUILD_VENDOR        = @BUILD_VENDOR@
+BUILD_TARGET        = @BUILD_TARGET@
+BUILD_MULTILIB      = @BUILD_MULTILIB@
+BUILD_TYPE          = @BUILD_TYPE@
+
+# All native compiler components:
+BASIC_COMPONENTS =
+
+# FIRST_COMPONENTS = $(NATIVE_BUILD_DIR)/include
+
+NATIVE_COMPONENTS = $(BASIC_COMPONENTS)
+
+BASIC_PHONY_TARGET = $(shell for i in $(BASIC_COMPONENTS); do basename "$$i" ; done)
+
+PHONY_TARGET = $(shell for i in $(NATIVE_COMPONENTS); do basename "$$i" ; done) 
+.PHONY : $(PHONY_TARGET) all install install_compiler clean clobber
+
+#define SKIP_DEP_BUILD will disable the unnecessary dependency check
+export SKIP_DEP_BUILD=1 
+
+# Use all to build compiler (build) and libraries (lib)
+# If BUILD_MULTILIB is YES, build a second library as well.
+ALL_TARGETS = lib
+CLEAN_LIB = clean-lib
+ifeq ($(BUILD_MULTILIB), YES)
+ALL_TARGETS += lib2
+CLEAN_LIB += clean-lib2
+endif
+
+all: $(ALL_TARGETS)
+
+# include:
+# 	$(MAKE) -C $(NATIVE_BUILD_DIR)/include
+
+
+.PHONY: phony_targets first
+
+
+phony_targets: $(PHONY_TARGET)
+
+install: install_compiler
+
+install_compiler:
+	export TOOLROOT=$(PREFIX); \
+	export TOP_SRCDIR=$(TOP_SRCDIR); \
+		$(TOP_SRCDIR)/install_compiler.sh $(MACHINE_TYPE) $(if $(BUILD_FORTRAN),"YES","NO") $(if $(BUILD_GNU4),"YES","NO") $(ENABLE_COARRAYS)
+
+LIB_ARGS = BUILD_TARGET=$(LIB_BUILD_TARGET) BUILD_AREA=$(LIB_BUILD_AREA) MACHINE_TYPE=$(LIB_MACHINE_TYPE) BUILD_ABI=$(LIB_BUILD_ABI) BUILD_ARCH=$(LIB_BUILD_ARCH) BUILD_HOST=$(LIB_BUILD_HOST)
+ifeq ($(LIB_BUILD_TARGET),IA64)
+LIB_ARGS += BUILD_TYPE=NONSHARED
+else
+LIB_ARGS += BUILD_TYPE=@BUILD_TYPE@
+endif
+LIB2_ARGS = BUILD_TARGET=$(LIB2_BUILD_TARGET) BUILD_AREA=$(LIB2_BUILD_AREA) MACHINE_TYPE=$(LIB2_MACHINE_TYPE) BUILD_ABI=$(LIB2_BUILD_ABI) BUILD_ARCH=$(LIB2_BUILD_ARCH) BUILD_HOST=$(LIB2_BUILD_HOST) BUILD_OPTIMIZE=@BUILD_LIB_OPTIMIZE@ BUILD_TYPE=@BUILD_TYPE@
+
+.PHONY: library lib clean-library clean-lib
+.PHONY: library2 lib2 clean-library2 clean-lib2
+
+library lib library2 lib2 : LOCAL_LIB_ACTION = default
+clean-library clean-lib clean-library2 clean-lib2 : LOCAL_LIB_ACTION = clobber
+
+library lib clean-library clean-lib : LOCAL_LIB_BUILD_DIR = $(LIB_BUILD_DIR)
+library lib clean-library clean-lib : LOCAL_LIB_ARGS = $(LIB_ARGS)
+library2 lib2 clean-library2 clean-lib2 : LOCAL_LIB_BUILD_DIR = $(LIB2_BUILD_DIR)
+library2 lib2 clean-library2 clean-lib2 : LOCAL_LIB_ARGS = $(LIB2_ARGS)
+
+library lib library2 lib2 :
+
+library lib clean-library clean-lib library2 lib2 clean-library2 clean-lib2:
+	@echo "$(MAKE) -C $(LOCAL_LIB_BUILD_DIR) $(LOCAL_LIB_ACTION) $(LOCAL_LIB_ARGS)"; \
+	$(MAKE) -C $(LOCAL_LIB_BUILD_DIR) $(LOCAL_LIB_ACTION) $(LOCAL_LIB_ARGS)
+
+clobber: clean 
+	rm -rf  $(BOOTDIR)
+
+clean: $(CLEAN_LIB)
+
+help:
+	@echo "Help of the Makefile for Open64 compiler source"
+	@echo "Note: It is strongly recommended that you unset TOOLROOT variable"
+	@echo "Available targets:"
+	@echo "  - (DEFAULT)"
+	@echo "    Build the components of the compiler"
+	@echo "  - help"
+	@echo "    Display this help"
+	@echo "  - install"
+	@echo "    Install the components of the compiler under prefix."
+	@echo "  - install_fe"
+	@echo "    Install the GNU FE components of the compiler."
+	@echo "  - install_compiler"
+	@echo "    Install the components of the compiler other than GNU FE, and libraries."
+	@echo "  - library"
+	@echo "    Build the libraries needed by the compiler ($(LIB_MACHINE_TYPE))"
+	@echo "  - library2"
+	@echo "    Build the libraries needed by the compiler ($(LIB2_MACHINE_TYPE))"
+	@echo "  - clean-lib"
+	@echo "    Remove intermediate files generated in building libraries"
+	@echo "  - clean"
+	@echo "  - clobber"
+	@echo "    Remove all intermediate files"
+	@echo ""
+	@echo "Available options (former is default):" 
+	@echo "  - BUILD_OPTIMIZE={NODEBUG|DEBUG}"
+	@echo "    Enable debug the compiler or not"
+	@echo "  - BUILD_COMPILER={GNU|OSP|PSC}"
+	@echo "    Using GCC(GNU) or Open64(OSP) Or Pathscale(PSC) compiler"
+	@echo "    to build the open64 compiler"
+	@echo "  - V={0|1}"
+	@echo "    Display detailed compilation progress or not"

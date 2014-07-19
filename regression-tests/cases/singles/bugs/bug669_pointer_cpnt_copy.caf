@@ -1,0 +1,38 @@
+    ! bug 669
+    !
+    ! when there are allocatable components in a derived type, the struct
+    ! assignment will force component-by-component assignment
+    !
+    ! This does not appear to be correct, because for pointer components this
+    ! will result not in a pointer reassociation but rather a copy into its
+    ! associated target.
+    !
+    ! If the pointer is not pointing to a target or is not allocated, then such
+    ! an assignment could result in a segmentation fault.
+
+   program bug669
+        type T
+            integer, pointer :: p(:)
+            integer, allocatable :: y(:)
+        end type
+
+        integer, target :: c(4), d(4)
+        type(T) :: a, b
+
+        c(:) = 20
+        d(:) = 40
+
+        a%p => c
+        b%p => d
+
+        if (this_image() == 1) then
+            print *, "before assignment:"
+            write (*,'(" c   = ", 4I4)') c
+            write (*,'(" a%p = ", 4I4)') a%p
+            a = b
+            print *, "after assignment:"
+            write (*,'(" c   = ", 4I4)') c
+            write (*,'(" a%p = ", 4I4)') a%p
+        end if
+
+    end program

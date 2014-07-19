@@ -1,0 +1,10 @@
+ passing contiguous slice of 1D array
+ 1: ( 2 ) a1 =  1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0
+ passing strided slice of 1D array
+ 2: ( 2 ) a1 =  1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0 1 0
+ passing non-contiguous section of 2D array
+ 3: ( 2 ) a2 =  1 1 1 1 1 1 1 1 1 1
+ passing contiguous slice of 1D allocatable array
+ 4: ( 2 ) a1 =  1 1 1 1 1 1 1 1 1 1 0 0 0 0 0 0 0 0 0 0
+ passing non-contiguous component section of 2D array
+ 5: ( 2 ) a%c =  1 1 1 1 1 1 1 1 1 1

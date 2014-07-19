@@ -1,0 +1,35 @@
+   !=========================================
+   ! image_index1
+   ! testing image_index for front end of compiler
+   !         this_image
+   !
+   !=========================================
+
+   program image_index1
+
+   integer, dimension(10,10), codimension[1:1,0:2,0:*] :: A
+   integer, dimension(5,10), codimension[2:4,1:*] :: B
+   integer, dimension(10,10), codimension[2,*] :: C
+
+   integer me, ne
+   integer index_
+
+   me = this_image()
+   ne = num_images()
+
+
+   if (me == 4) then
+       print *,"testing image_index()"
+
+       index_ = image_index(A, (/1,0,1/))
+       print *,"image idx should be:", 4, "image_index(A,(/1,0,1/))=",index_
+
+       index_ = image_index(B, (/3,1/))
+       print *,"image idx should be:", 2 , "image_index(B,(/3,1/))=",index_
+
+       index_ = image_index(C, (/3,3/))
+       print *,"image idx should be:", 0, "image_index(C,(/3,3/))=",index_
+   end if
+
+
+   end program

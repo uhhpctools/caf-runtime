@@ -1,0 +1,23 @@
+
+module tests
+    contains
+        subroutine f(a)
+            integer (8) :: a(:,:)[*]
+            print *, a(2,:)[num_images()]
+            print *, "expecting: ", (/num_images(),num_images()/)
+        end subroutine f
+end module
+
+program main
+    use tests
+    implicit none
+    integer (8) :: a(2,2)[*]
+    integer :: i,h
+
+    a = this_image()
+
+    sync all
+
+    if (this_image() == 1) call f(a)
+
+end program

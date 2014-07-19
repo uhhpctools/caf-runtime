@@ -1,0 +1,28 @@
+      ! test for non-unit stride on a remote coarray access
+
+      program nus_test
+        integer, allocatable :: a(:)[:]
+
+        allocate( a(5)[*] )
+
+        a = this_image()
+
+        print *, this_image(), " (before): ", a
+        call flush(6)
+        sync all
+
+        a(1:5:2) = this_image()*10
+
+        print *, this_image(), " (after 1): ", a
+        call flush(6)
+
+        if (this_image() == 1) then
+          a(1:5:2)[2] = this_image()*100
+        end if 
+
+        sync all
+
+        print *, this_image(), " (after 2): ", a
+        call flush(6)
+
+      end program

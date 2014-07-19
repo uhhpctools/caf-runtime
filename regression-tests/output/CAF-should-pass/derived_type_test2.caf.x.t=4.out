@@ -1,0 +1,6 @@
+ Allocatable test
+ t is        : odd  odd  odd  odd  odd  even even even even even 
+ t should be : odd  odd  odd  odd  odd  even even even even even 
+ Non-allocatable test
+ t is        : odd  odd  odd  odd  odd  even even even even even 
+ t should be : odd  odd  odd  odd  odd  even even even even even 

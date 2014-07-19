@@ -1,0 +1,8 @@
+When you add a new test case, run it using 4 images, and add the sorted output file in testsuite/output/CAF-should-pass.
+The output file should have the format <file>.caf.x.t=4.out
+
+Example: for new testcase a.caf:
+uhcaf a.caf -o a.caf.x
+cafrun -n 4 a.caf.x > out
+sort out > a.caf.x.t=4.out
+cp a.caf.x.t=4.out testsuite/output/CAF-should-pass

@@ -1,0 +1,25 @@
+ contiguous slice of 1D array
+ 1 2
+ 3
+ 1 1
+ 2 2
+ strided slice of 1D array
+ 1 2
+ 3
+ 1 1
+ 2 2
+ non-contiguous section of 2D array
+ 1 2
+ 3
+ 1 1
+ 2 2
+ contiguous slice of 1D allocatable array
+ 1 2
+ 3
+ 1 1
+ 2 2
+ non-contiguous component section of 2D array
+ 1 2
+ 3
+ 1 1
+ 2 2

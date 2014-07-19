@@ -1,0 +1,88 @@
+! single-value put and get test
+
+
+      program bug646
+          integer :: a(20)[*], d[*]
+          integer :: b(20),  c(20), e
+
+          if (this_image() == 1) then
+              a = 0
+              b = 0
+              c = 0
+              d = 0
+              e = 0
+              write (*, '(/a)') "single value put test 1:"
+              print *, "    a(:)[1] = c(1) "
+
+              c(1) = 1
+
+              b(:) = c(1)
+              a(:)[1] = c(1)
+
+              if (any(a /= b)) then
+                  print *, "fail"
+                  print *, "a is ", a
+                  print *, "should be ", b
+              else
+                  print *, "success"
+              end if
+
+              a = 0
+              b = 0
+              c = 0
+              d = 0
+              e = 0
+              write (*, '(/a)') "single value put test 2:"
+              print *, "    a(:)[1] = e "
+
+              e = 1
+              b(:) = e
+              a(:)[1] = e
+
+              if (any(a /= b)) then
+                  print *, "fail"
+                  print *, "a is ", a
+                  print *, "should be ", b
+              else
+                  print *, "success"
+              end if
+
+              a = 0
+              b = 0
+              c = 0
+              d = 0
+              e = 0
+              write (*, '(/a)') "single value get test 1:"
+              print *, "    b(:) = a(1)[1] "
+
+              a(1) = 1
+              b(:) = a(1)[1]
+              c(:) = a(1)
+              if (any(b /= c)) then
+                  print *, "fail"
+                  print *, "b is ", b
+                  print *, "should be ", c
+              else
+                  print *, "success"
+              end if
+
+              a = 0
+              b = 0
+              c = 0
+              d = 0
+              e = 0
+              write (*, '(/a)') "single value get test 2:"
+              print *, "    b(:) = d[1] "
+
+              d = 1
+              b(:) = d[1]
+              c(:) = d
+              if (any(b /= c)) then
+                  print *, "fail"
+                  print *, "b is ", b
+                  print *, "should be ", c
+              else
+                  print *, "success"
+              end if
+          end if
+      end program

@@ -1,0 +1,32 @@
+! Coindexed Subscript Test 2
+
+      program bug677b
+          integer :: a(5), b[*]
+          integer :: i
+          logical :: success
+
+          success = .true.
+          b = this_image()
+
+          a(:) = [ (10*this_image() + i, i=1,5) ]
+
+          sync all
+
+          if (this_image() == 3) then
+              a(1) = a(b[4])
+              if ( any(a /= [34,32,33,34,35]) ) then
+                  success = .false.
+              end if
+
+              a(1) = b[b[2]]
+              if ( any(a /= [2,32,33,34,35]) ) then
+                  success = .false.
+              end if
+
+              if (success) then
+                  print *, "SUCCESS"
+              else
+                  print *, "FAIL"
+              end if
+          end if
+      end program

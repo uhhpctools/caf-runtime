@@ -1,0 +1,22 @@
+! Hello Test
+
+! A basic coarray test. Image 1 writes to arr on image 2. Then each image
+! prints its image ID and its value of arr.
+
+            program hello
+            integer  ::arr(3)[*],num
+            arr(:) = this_image()
+            sync all
+            if(this_image()==1) then
+                num=2
+                arr(2)=3
+                arr(3)=4
+                arr(:)[num]=arr(:)[this_image()]
+            end if
+
+            sync all
+
+            print * , "Hello, this is image ",this_image()
+            print * , arr(:)
+
+            end program hello

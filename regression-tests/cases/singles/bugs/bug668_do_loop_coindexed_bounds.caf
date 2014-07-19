@@ -1,0 +1,29 @@
+! Test for co-indexed do loop bounds
+
+! This verifies that co-indexed integer variables may be used in the integer
+! express for DO loop bounds
+
+program bug668
+        integer :: a(2)[*]
+
+        a(1) = (this_image()-1)*10 + 1
+        a(2) = a(1) + 9
+
+        if (this_image() == 1) then
+            do i = a(1)[1], a(2)[1]
+              print *, i, ": in do loop"
+            end do
+
+            do i = a(1)[1]+3, a(2)[1]+3
+              print *, i, ": in do loop"
+            end do
+
+            do i = a(1)[2], a(2)[2]
+              print *, i, ": in do loop"
+            end do
+
+            do i = a(1)[2]+3, a(2)[2]+3
+              print *, i, ": in do loop"
+            end do
+        end if
+    end program bug668

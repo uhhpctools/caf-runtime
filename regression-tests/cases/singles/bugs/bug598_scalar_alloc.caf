@@ -1,0 +1,7 @@
+      program alloc_coarray
+        real, allocatable :: a[:]
+
+        allocate( a[*] )
+        a = this_image()
+        print *, a
+      end program

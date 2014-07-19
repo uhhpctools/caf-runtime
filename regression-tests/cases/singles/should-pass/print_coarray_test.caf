@@ -1,0 +1,16 @@
+! Print Coarray Test
+
+! This tests using a co-indexed argument to the print statement.
+
+            program print_coarray
+                real, dimension(5), codimension[*] :: A
+                real :: x
+
+                A = this_image()
+
+                sync all
+
+                if (this_image() == 1) then
+                    print *, "A on image 3 is ",A(:)[3]
+                end if
+            end program

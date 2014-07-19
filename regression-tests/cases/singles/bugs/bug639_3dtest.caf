@@ -1,0 +1,45 @@
+      module subs
+        contains
+        subroutine sub_test(z,E)
+          !integer :: z(:,:,:)
+          integer :: z(4,4,3)
+          integer :: E(4,4,3)[*]
+          !integer :: E(:,:,:)[*]
+
+          m = 1
+          do k = 1,3
+            do j = 1,4
+              do i = 1,4
+               E(i,j,k) = m
+               m  = m + 1
+              enddo
+            enddo
+          enddo
+
+          sync all
+
+          if (this_image() == 2) then
+             z = 0
+             z(1,1:2,1:2) = E(1,1:3:2,1:2)[1]
+
+             print *, "z           : ", z(:,:,:)
+             print *, "z should be : ",             &
+                     (/ 1,0,0,0,9,0,0,0,0,0,0,0,0,  &
+                        0,0,0,                      &
+                        17,0,0,0,25,0,0,0,0,0,0,0,0,&
+                        0,0,0,                      &
+                        0,0,0,0,0,0,0,0,0,0,0,0,0,  &
+                        0,0,0  /)
+          else if (this_image() == 1) then
+             print *, "E on img 1  : ", E(:,:,:)
+          end if
+
+        end subroutine
+      end module
+      program main
+        use subs
+        integer :: z(4,4,3)
+        integer :: E(4,4,3)[*]
+        call sub_test(z, E)
+      end program
+

@@ -1,0 +1,663 @@
+#!@BASH_PATH@
+#
+#
+#  CAF compiler wrapper for OpenUH
+#
+#  Copyright (C) 2010-2013 University of Houston.
+#
+#  This program is free software; you can redistribute it and/or modify it
+#  under the terms of version 2 of the GNU General Public License as
+#  published by the Free Software Foundation.
+#
+#  This program is distributed in the hope that it would be useful, but
+#  WITHOUT ANY WARRANTY; without even the implied warranty of
+#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+#  Further, this software is distributed without any warranty that it is
+#  free of the rightful claim of any third person regarding infringement
+#  or the like.  Any license provided herein, whether implied or
+#  otherwise, applies only to this software file.  Patent licenses, if
+#  any, provided herein do not apply to combinations of this program with
+#  other software, or any other product whatsoever.
+#
+#  You should have received a copy of the GNU General Public License along
+#  with this program; if not, write the Free Software Foundation, Inc., 59
+#  Temple Place - Suite 330, Boston MA 02111-1307, USA.
+#
+#  Contact information:
+#  http://www.cs.uh.edu/~hpctools
+#
+#
+
+progname="`basename $0`"
+
+tracing_enabled=@CAFRT_ENABLE_DTRACES@
+GASNET_HOME=@GASNET_HOME@
+GASNET_CONDUIT=`echo "@GASNET_CONDUITS@" | cut -d" " -f1`
+ARMCI_HOME=@ARMCI_HOME@
+COMM_LAYER=@DEFAULT_COMM@
+ARMCI_NETWORK_LIBS="@ARMCI_NETWORK_LIBS@"
+CC=uhcc
+FC=uhf90
+CAF_FLAGS="-coarray -fno-second-underscore"
+CAF_LDFLAGS="-coarray"
+MPI_LDFLAGS=""
+ENVIRONMENT="-----------------------\n"
+
+uhcaf_usage()
+{
+  cat <<_EOT_
+
+Usage: $progname  [OPTION]... [OPENUH_OPTION]... [SOURCE]...
+
+Where options are
+
+  --layer=L         L represents a specified runtime layer to support remote
+                    accesses. Available layers are:
+                        gasnet-<conduit>, where <conduit> may be one of: @GASNET_CONDUITS@
+                        armci
+
+  --mpi             Compile CAF+MPI programs
+
+  --static-libcaf   Force use of the static libcaf-* archive
+
+  --help, -h        Displays this menu
+
+  --help2, -H       Displays available options for OpenUH compiler
+
+  --verbose         Displays UHCAF environment variables, and invocation
+                    commands used by script and underlying compiler
+
+  --show            Displays compiler defaults and linker settings for UHCAF
+                    compiler and exits
+
+  --keep, -k        Keep any temporary files in current directory
+
+  --gasnet-path=G   G is the path to a specified GASNet installation
+                          Currently set to: $GASNET_HOME
+
+  --armci-path=A    A is the path to a specified ARMCI source directory
+                          Currently set to: $ARMCI_HOME
+
+Environment Variables:
+   UHCAF_MPI_FCFLAGS
+                    Specify Fortran compiler options for MPI
+                        Currently: $UHCAF_MPI_FCFLAGS
+
+   UHCAF_MPI_LDFLAGS
+                    Specify linker options for MPI
+                        Currently: $UHCAF_MPI_LDFLAGS
+
+   UHCAF_EXTRA_LDFLAGS
+                    Optionally specify additional libraries that should be linked
+                    in.
+                        Currently: $UHCAF_EXTRA_LDFLAGS
+
+_EOT_
+
+  exit 1
+}
+
+uhf90_usage()
+{
+  uhf90 --help
+  exit 1
+}
+
+add_to_env_list()
+{
+  var=$1
+  val=$(eval "echo \$$1")
+  ENVIRONMENT+="  $var: $val\n"
+}
+
+set_env()
+{
+  var=$1
+  shift
+  val="$*"
+
+  cmd="$var=\"$val\"; export $var"
+  eval $cmd
+
+  add_to_env_list $var $val
+}
+
+print_error()
+{
+  echo -e "Error: $*" >&2
+  exit 1
+}
+
+print_warning()
+{
+  echo -e "Warning: $*" >&2
+}
+
+print_compile_link_info()
+{
+  LAYER_INSTALLATION_PATH="unknown"
+  UHCAF_NETWORK="unknown"
+  MSG_LAYER="N/A"
+  LIB_LIST=`echo "$COMM_LIBS" | fmt -w 50  | awk '{print (NR==1?$0:"\t\t\t " $0)}'`
+  if [ "$COMM_LAYER" == "gasnet" ]; then
+      LAYER_INSTALLATION_PATH=$GASNET_HOME
+      UHCAF_NETWORK=$GASNET_CONDUIT
+      if [ "$GASNET_CONDUIT" != "smp" ]; then
+          MSG_LAYER=$UHCAF_MPI_LDFLAGS
+      fi
+  elif [ "$COMM_LAYER" == "armci" ]; then
+      LAYER_INSTALLATION_PATH=$ARMCI_HOME
+      UHCAF_NETWORK=$ARMCI_NETWORK
+      MSG_LAYER=$UHCAF_MPI_LDFLAGS
+  fi
+
+  if [ -n "`$FC -V 2>&1 | grep -i \" --with-build-optimize=debug\"`" ]; then
+      OPENUH_IS_DEBUG=yes
+  else
+      OPENUH_IS_DEBUG=no
+  fi
+
+  OPENUH_DEFAULT_OPTIONS="$CAF_FLAGS "
+  OPENUH_DEFAULT_OPTIONS+="`$FC -show-defaults 2>&1 | sed -e 's/^[ \t]*//' | sed -n 2p`"
+  OPENUH_DEFAULT_OPTIONS=`echo "$OPENUH_DEFAULT_OPTIONS" | fmt -w 50 | \
+                          awk '{print (NR==1?$0:"\t\t\t " $0)}'`
+  cat <<_EOT_
+
+  ---------------------------------------------------------------------------
+                                UHCAF SETTINGS
+  ---------------------------------------------------------------------------
+  Compiler:
+        version:         $(eval "$FC -dumpversion")
+        debug build:     $OPENUH_IS_DEBUG
+        default options: $OPENUH_DEFAULT_OPTIONS
+  ---------------------------------------------------------------------------
+  Linker:
+        libcaf:          $LIBCAF
+        comm libraries:  $LIB_LIST
+  ---------------------------------------------------------------------------
+  Communication Layer:
+        layer:           $COMM_LAYER ($LAYER_INSTALLATION_PATH)
+        tracing:         $tracing_enabled
+        network:         $UHCAF_NETWORK
+        2-sided msg:     $MSG_LAYER
+  ---------------------------------------------------------------------------
+_EOT_
+
+  exit 1
+
+}
+
+write_set_static_symm_data()
+{
+  args=( "$@" )
+  echo "/* This file was auto-generated by the uhcaf script. */" > $set_static_symm_data.c
+  echo "" >> $set_static_symm_data.c
+
+  echo "#include <string.h>" >> $set_static_symm_data.c
+  echo "" >> $set_static_symm_data.c
+
+  for i in `seq 0 $((${#args[@]}-1))`; do
+      symm_data_name=${args[i]}
+      echo "void *$symm_data_name;" >> $set_static_symm_data.c
+      if [[ $symm_data_name == __SAVE_INIT_* ]]; then
+          orig_ptr=__${symm_data_name#__SAVE_INIT_SYMM_}
+          orig_ptr=${orig_ptr%_*}_ptr
+          echo "extern void *$orig_ptr;" >> $set_static_symm_data.c
+      fi
+  done
+  echo "void set_static_symm_data ( void *base_address, size_t alignment)" >> $set_static_symm_data.c
+  echo "{" >> $set_static_symm_data.c
+  echo "  unsigned long offset = 0;" >> $set_static_symm_data.c
+  for i in `seq 0 $((${#args[@]}-1))`; do
+      symm_data_name=${args[i]}
+      size=${symm_data_name##*_}
+      echo "   $symm_data_name  = base_address + offset;" >> $set_static_symm_data.c
+      echo "   offset += (($size-1)/alignment+1)*alignment;" >> $set_static_symm_data.c
+      # do memcpy for initialized data
+      if [[ $symm_data_name == __SAVE_INIT_* ]]; then
+          orig_ptr=__${symm_data_name#__SAVE_INIT_SYMM_}
+          orig_ptr=${orig_ptr%_*}_ptr
+          echo "   memcpy($symm_data_name, $orig_ptr, $size);" >> $set_static_symm_data.c
+      fi
+  done
+  echo "}" >> $set_static_symm_data.c
+  echo "" >> $set_static_symm_data.c
+  echo "unsigned long get_static_symm_size (size_t alignment, size_t collectives_bufsize)" >> $set_static_symm_data.c
+  echo "{" >> $set_static_symm_data.c
+  echo "  unsigned long offset = 0;" >> $set_static_symm_data.c
+  for i in `seq 0 $((${#args[@]}-1))`; do
+      symm_data_name=${args[i]}
+      size=${symm_data_name##*_}
+      echo "   offset += (($size-1)/alignment+1)*alignment;" >> $set_static_symm_data.c
+  done
+  echo "   offset += ((collectives_bufsize-1)/alignment+1)*alignment;" >> $set_static_symm_data.c
+  echo "  return offset;" >> $set_static_symm_data.c
+  echo "}" >> $set_static_symm_data.c
+}
+
+execute()
+{
+    command=$@
+    if [ "$verbose" == 'y' ]; then
+        echo
+        echo "====================================================================================="
+        echo "   $command" | fold -w 80 --spaces | awk '{print (NR==1?$0 "  \\":"\t   " $0 " \\")}'
+        echo ""
+        echo "====================================================================================="
+        echo
+        eval $command
+    else
+        eval $command
+    fi
+}
+
+# -------------------------------------------------------------------
+
+if [ $# -eq 0 ]; then
+  uhcaf_usage
+fi
+
+# set UHCAF_MPI_FCFLAGS if it isn't set
+if [ -z "$UHCAF_MPI_FCFLAGS" ]; then
+  set_env UHCAF_MPI_FCFLAGS "@UHCAF_MPI_FCFLAGS@"
+else
+  add_to_env_list UHCAF_MPI_FCFLAGS
+fi
+
+# set UHCAF_MPI_LDFLAGS if it isn't set
+if [ -z "$UHCAF_MPI_LDFLAGS" ]; then
+  set_env UHCAF_MPI_LDFLAGS "@UHCAF_MPI_LDFLAGS@"
+else
+  add_to_env_list UHCAF_MPI_LDFLAGS
+fi
+
+show_info='n'
+verbose='n'
+keep='n'
+support_mpi='n'
+all_args=("$@")
+arg_num=0
+link='y'
+for arg in "$@" ;  do
+    pass_arg=yes
+    case "$arg" in
+        --verbose)
+          verbose='y'
+          CAF_FLAGS+=" -show"
+          pass_arg=no
+          ;;
+        -h|--help)
+          uhcaf_usage
+          ;;
+        -H|--help2)
+          uhf90_usage
+          ;;
+        -help|-help:*)
+          link='n'
+          ;;
+        -k|--keep|-keep)
+          keep='y'
+          pass_arg=no
+          ;;
+        -c|-S|-fe)
+          link='n'
+          pass_arg=yes
+          ;;
+        --gasnet-path=*)
+          val=`echo UhCaf$arg | sed -e 's/UhCaf--gasnet-path=//g'`
+          if [ ! -d "$val" ]; then
+            print_error "$val does not exist"
+          fi
+          GASNET_HOME=$val
+          pass_arg=no
+          ;;
+        --armci-path=*)
+          val=`echo UhCaf$arg | sed -e 's/UhCaf--armci-path=//g'`
+          if [ ! -d "$val" ]; then
+            print_error "$val does not exist"
+          fi
+          ARMCI_HOME=$val
+          pass_arg=no
+          ;;
+        --layer=*)
+          val=`echo UhCaf$arg | sed -e 's/UhCaf--layer=//g'`
+          layer=`echo $val | tr '[:upper:]' '[:lower:]'`
+          if [ -z "$layer" ]; then
+            print_error "layer needs to be specified with --layer"
+          elif [ $layer == armci ]; then
+            COMM_LAYER=armci
+          elif [[ $layer == gasnet-* ]]; then
+            GASNET_CONDUIT=`echo $layer | sed 's/gasnet-//'`
+            valid=0
+            for gc in @GASNET_CONDUITS@; do
+              if [ $GASNET_CONDUIT == $gc ]; then
+                valid=1
+              fi
+            done
+            if [ $valid == 0 ]; then
+              print_error "$layer is not available"
+            fi
+            COMM_LAYER=gasnet
+          elif [ $layer == gasnet ]; then
+            COMM_LAYER=gasnet
+          else
+            print_error "$val layer is not supported"
+          fi
+          pass_arg=no
+          ;;
+        --static-libcaf)
+          use_static_libcaf='y'
+          pass_arg=no
+          ;;
+        --mpi)
+          support_mpi='y'
+          CAF_FLAGS="$CAF_FLAGS $UHCAF_MPI_FCFLAGS"
+          MPI_LDFLAGS="$UHCAF_MPI_LDFLAGS"
+          pass_arg=no
+          ;;
+        --show|--show-info)
+          show_info='y'
+          pass_arg=no
+          ;;
+        -show|-show-defaults|-show0|-v)
+          verbose='y'
+          ;;
+        *)
+          ;;
+    esac
+
+    if [ $pass_arg = no ]; then
+        unset all_args[$arg_num]
+    fi
+    arg_num=$((arg_num+1))
+done
+
+all_args=("${all_args[@]}")
+
+
+# command for creating temporary files
+if [ "$keep" == "y" ]; then
+  mktemp_cmd="mktemp -p uhcaf.keep"
+  if [ ! -d uhcaf.keep ]; then
+    mkdir uhcaf.keep
+  fi
+else
+  mktemp_cmd="mktemp"
+fi
+
+if [ -z "$COMM_LAYER" ]; then
+  print_error "No communication layer specified"
+elif [ "$COMM_LAYER" != "gasnet" -a "$COMM_LAYER" != "armci" ]; then
+  print_error "Invalid comm layer specified: $COMM_LAYER"
+fi
+
+if [ $COMM_LAYER == gasnet -a -z "$GASNET_HOME" ]; then
+  print_error "gasnet layer is not available"
+elif [ $COMM_LAYER == armci -a -z "$ARMCI_HOME" ]; then
+  print_error "armci layer is not available"
+fi
+
+if [ $COMM_LAYER == gasnet ]; then
+
+  if [ -z "$GASNET_CONDUIT" ]; then
+     print_error "No gasnet conduit set."
+  fi
+
+  if [ "$GASNET_CONDUIT" == "smp" -a "$support_mpi" == "y" ]; then
+      print_error "CAF+MPI programs not supported when using GASNet smp conduit."
+  fi
+  if [ "$support_mpi" == "y" -a -z "$UHCAF_MPI_FCFLAGS" ]; then
+      print_warning \
+          "You may need to set UHCAF_MPI_FCFLAGS to compile MPI programs"
+  fi
+  if [ "$support_mpi" == "y" -a -z "$UHCAF_MPI_LDFLAGS" ]; then
+      print_warning \
+          "You may need to set UHCAF_MPI_LDFLAGS to compile MPI programs"
+  fi
+
+  # get necessary linker args from appropriate GASNet *.mak file
+
+  if [ "$keep" == "y" ]; then
+      temp_name=`$mktemp_cmd`
+      mv $temp_name $temp_name.mak
+      echo -e "uhcaf-rule-mpi-linker:\n\t@echo \$(GASNET_LD)\n\n"  \
+      | cat ${GASNET_HOME}/include/$GASNET_CONDUIT-conduit/$GASNET_CONDUIT-par.mak - \
+      > $temp_name.mak
+      echo -e "uhcaf-rule-gasnet-libs:\n\t@echo \$(GASNET_LIBS)" >> $temp_name.mak
+  fi
+
+  get_libs="echo -e \"uhcaf-rule:\n\t@echo \\\$(GASNET_LIBS)\"  \
+  | cat ${GASNET_HOME}/include/$GASNET_CONDUIT-conduit/$GASNET_CONDUIT-par.mak -  \
+  | make uhcaf-rule --no-print-directory -sf -"
+  COMM_LIBS=`eval $get_libs`
+
+  mak="echo -e \"get-gasnet-ld:\n\t@echo \\\$(GASNET_LD)\"  \
+  | cat ${GASNET_HOME}/include/$GASNET_CONDUIT-conduit/$GASNET_CONDUIT-par.mak -  \
+  | make get-gasnet-ld --no-print-directory -sf -"
+
+  GASNET_LD=`eval $mak`
+  GASNET_LD_ARGS=`echo $GASNET_LD | cut -s -d" " -f2-`
+  GASNET_LD=`echo $GASNET_LD | cut -d" " -f1`
+
+  mak="echo -e \"get-gasnet-libs:\n\t@echo \\\$(GASNET_LIBS)\"  \
+  | cat ${GASNET_HOME}/include/$GASNET_CONDUIT-conduit/$GASNET_CONDUIT-par.mak -  \
+  | make get-gasnet-libs --no-print-directory -sf -"
+
+  GASNET_LIBS=`eval $mak`
+
+  COMM_LIBS=$GASNET_LIBS
+  set_env OPENUH_CAF_EXT_LINKER $GASNET_LD
+  set_env OPENUH_CAF_EXT_LINKER_ARGS $GASNET_LD_ARGS
+  CAF_LDFLAGS+=" -Wl,--no-as-needed "
+
+  if [ "$use_static_libcaf" == "y" ]; then
+      LIBCAF="-l:libcaf-gasnet-$GASNET_CONDUIT.a"
+  else
+      LIBCAF="-lcaf-gasnet-$GASNET_CONDUIT"
+  fi
+
+elif [ $COMM_LAYER == armci ]; then
+  # TODO We should use same MPI used for ARMCI installation, but not sure how to
+  # check for this. So using UHCAF_MPI_LDFLAGS instead and trusting that it is
+  # for the same MPI.
+
+  if [ -z "$UHCAF_MPI_LDFLAGS" ]; then
+      print_error "compiling with ARMCI requires UHCAF_MPI_LDFLAGS to be given"
+  fi
+
+  # need to link in ARMCI and MPI libs as well.
+  COMM_LIBS="-L$ARMCI_HOME/lib -Wl,-rpath,$ARMCI_HOME/lib -larmci $ARMCI_NETWORK_LIBS"
+  COMM_LIBS="$COMM_LIBS $UHCAF_MPI_LDFLAGS"
+
+  if [ "$use_static_libcaf" == "y" ]; then
+      LIBCAF="-l:libcaf-armci.a"
+  else
+      LIBCAF="-lcaf-armci"
+  fi
+fi
+
+if [ -n "$EXTRA_LDFLAGS" ]; then
+  add_to_env_list "EXTRA_LDFLAGS"
+fi
+
+# display information for uhcaf
+if [ "$show_info" == "y" ]; then
+  print_compile_link_info
+fi
+
+set_env OPENUH_COMM_LAYER $COMM_LAYER
+
+# Now we invoke the compiler.
+
+ENVIRONMENT+="-----------------------\n"
+
+
+if [ "$keep" == "y" ]; then
+  keep_option="-keep"
+else
+  keep_option=""
+fi
+
+compiler_args="${all_args[@]}"
+
+# if no source files specified, then we link
+source_seen=no
+for arg in $compiler_args; do
+    case $arg in
+        *.c)
+          # C source
+          source_seen=yes
+          ;;
+        *.f|*.for|*.F|*.FOR|*.f90|*.f95|*.caf|*.F90|*.F95)
+          # Fortran source
+          source_seen=yes
+          ;;
+        *.s|*.S)
+          # assembler
+          source_seen=yes
+          ;;
+        *.B|*.P|*.N|*.I|*.W|*.O|*.i|*.ii|*.r)
+          # IR
+          source_seen=yes
+          ;;
+        *.C|*.CC|*.CPP|*.cc|*.cpp|*.cxx|*.c++)
+          print_error "uhcaf does not allow C++ source files ($arg)"
+          ;;
+    esac
+done
+if [ $source_seen = no -a "$link" == "n" ]; then
+    link="y"
+fi
+
+if [ "$link" == "n" ]; then
+  case $verbose in
+    y)
+      echo "$progname environment:"
+      echo -e $ENVIRONMENT
+      echo
+      echo "$progname:"
+      echo
+      ;;
+    *)
+      ;;
+  esac
+
+  execute $FC $CAF_FLAGS $keep_option $compiler_args
+  stat=$?
+
+else
+  case $verbose in
+    y)
+      echo "UHCAF ENVIRONMENT:"
+      echo -e $ENVIRONMENT
+      echo
+      ;;
+    *)
+      ;;
+  esac
+
+
+  # remove any switch for output file from the compile command
+  arg_num=0
+  output_file=""
+  get_output=0
+  for arg in $compiler_args; do
+      if [ $get_output -eq 1 ]; then
+          output_file="-o $arg"
+          unset all_args[$arg_num]
+          get_output=0
+      else
+          case $arg in
+              -o)
+              get_output=1
+              unset all_args[$arg_num]
+              ;;
+          esac
+      fi
+      arg_num=$((arg_num+1))
+  done
+  all_args=("${all_args[@]}")
+  compiler_args="${all_args[@]}"
+
+  stat=0
+  if [ $source_seen = yes ]; then
+      execute $FC $CAF_FLAGS $keep_option -c $compiler_args
+      stat=$?
+  fi
+
+  if [ "$stat" == "0" ]; then
+
+      # add some symbols into executable for cafrun script to check
+      link_instructions=`$mktemp_cmd`
+      symbol_defs="int OPENUH_COMM_LAYER_IS_$COMM_LAYER; \
+                  int OPENUH_GASNET_CONDUIT_IS_$GASNET_CONDUIT; \
+                  int OPENUH_ARMCI_NETWORK_IS_$ARMCI_NETWORK;"
+
+      rm -f $link_instructions
+      echo $symbol_defs | $CC -c -x c -o $link_instructions.o -
+
+      set_static_symm_data="uhcaf.init_static_symm_data"
+
+      # get the save coarray/target refs first
+      OBJECTS1=""
+      OBJECTS2=""
+      arg_num=0
+      for arg in $compiler_args; do
+          case $arg in
+              *.f|*.F|*.for|*.FOR|*.f90|*.f95|*.F90|*.F95|*.caf)
+                sourcefile=$(basename "$arg")
+                sourcename=${sourcefile%.*}
+                OBJECTS1+="$sourcename.o "
+                unset all_args[$arg_num]
+                ;;
+              *.o)
+                OBJECTS2+="$arg "
+                unset all_args[$arg_num]
+                ;;
+          esac
+          arg_num=$((arg_num+1))
+      done
+      all_args=("${all_args[@]}")
+      compiler_args="${all_args[@]}"
+
+      # collect save coarray and target info from object files
+      i=0
+      search_symm_symbols=" __SAVE_SYMM_\| __SAVE_INIT_SYMM"
+      for s in \
+        `readelf -sW $OBJECTS1 $OBJECTS2 2>&1 | grep "$search_symm_symbols" |  awk '{print $8}'`; do
+        symm_data_name[i]=$s
+        i=$((i+1))
+      done
+
+      if [ $i -gt 0 ]; then
+          write_set_static_symm_data "${symm_data_name[@]}"
+          $CC -c $set_static_symm_data.c
+
+          # link command
+          execute $FC $CAF_LDFLAGS $keep_option $OBJECTS1 \
+                  $OBJECTS2 $compiler_args   \
+                  $link_instructions.o $set_static_symm_data.o  \
+                  $output_file $LIBCAF -lcaf-extra $COMM_LIBS \
+                  $MPI_LDFLAGS $EXTRA_LDFLAGS
+          stat=$?
+      else
+          # link command
+          execute $FC $CAF_LDFLAGS $keep_option $OBJECTS1 \
+                  $OBJECTS2 $compiler_args   \
+                  $link_instructions.o  \
+                  $output_file $LIBCAF -lcaf-extra $COMM_LIBS \
+                  $MPI_LDFLAGS $EXTRA_LDFLAGS
+          stat=$?
+      fi
+  else
+      link=-'n'
+  fi
+fi
+
+if [ "$keep" == "n" -a "$link" == "y" ]; then
+   rm -f $link_instructions.o $OBJECTS1 $set_static_symm_data.o \
+         $set_static_symm_data.c
+fi
+
+exit $stat

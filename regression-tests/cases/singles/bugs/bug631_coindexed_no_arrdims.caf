@@ -1,0 +1,14 @@
+! A coindexed coarray having rank != 0 must specify subscripts for the
+! array dimensions.
+      program bug631
+        integer :: a(1,1)[*]
+        integer :: t(1,1)
+
+        ! this is correct
+        a(1,1)[1] = 0
+        t(:,:) = a(1,1)[1]
+
+        ! this is a syntax error
+        a[1] = 0
+        t(:,:) = a[1]
+      end program

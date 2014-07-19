@@ -1,0 +1,82 @@
+! Test support for stat= and errmsg=
+
+! This tests support for stat= and errmsg= with the lock statement and sync
+! images statement.
+
+      program stat_errmsg_test
+
+        use, intrinsic :: iso_fortran_env
+        implicit none
+        integer :: retval
+        character (len=32) :: msg
+        type(lock_type) :: l[*]
+        logical :: success
+        integer :: partners(3), partners2(3)
+
+
+        retval = 1
+        lock( l[1], stat=retval )
+            lock (l[1], stat=retval, errmsg=msg )
+            if (retval == STAT_LOCKED) then
+                print *, "variable is already locked by this image"
+            end if
+        unlock( l[1] )
+
+        sync all
+
+        if (this_image()==1) then
+            lock(l[1])
+            call sleep(2)
+            unlock(l[1])
+        else
+            call sleep(1)
+            unlock(l[1], stat=retval)
+            if (retval == STAT_LOCKED_OTHER_IMAGE) then
+                print *, this_image(), ": locked by other image"
+            else if (retval == STAT_UNLOCKED) then
+                print *, this_image(), ": is unlocked"
+            else
+                print *, this_image(), ": other return code: ", retval
+            end if
+        end if
+
+
+        sync all
+
+        if (this_image() == 2) then
+            STOP
+        else
+            call sleep(1)
+            if (this_image() == 1) then
+                partners=(/2,3,4/)
+                partners2=(/1,3,4/)
+            else if (this_image() == 3) then
+                partners=(/1,3,4/)
+                partners2=(/1,3,4/)
+            else if (this_image() == 4) then
+                partners=(/1,3,4/)
+                partners2=(/1,3,4/)
+            end if
+        end if
+
+         ! image 1 should encounter a stopped image
+         sync images ( partners, stat=retval)
+         if (retval == 0) then
+             print *, this_image(), ": success!"
+         else if (retval == STAT_STOPPED_IMAGE) then
+             print *, this_image(), ": encountered stopped image"
+         else
+             print *, this_image(), ": unknown status: ", retval
+         end if
+
+         ! all images should synchronize here just fine
+         sync images ( partners2, stat=retval )
+         if (retval == 0) then
+             print *, this_image(), ": success!"
+         else if (retval == STAT_STOPPED_IMAGE) then
+             print *, this_image(), ": encountered stopped image"
+         else
+             print *, this_image(), ": unknown status: ", retval
+         end if
+
+      end program

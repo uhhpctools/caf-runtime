@@ -1,0 +1,36 @@
+! bug 579: mfef95 seg fault for assumed shape coarray arg
+
+      module common
+          public :: foo
+          contains
+
+          subroutine foo(B)
+              ! integer, allocatable :: B(:)[:]
+              integer :: B(:)[*]
+
+              print *, B
+
+              B = B(:)[2]*10
+          end subroutine foo
+      end module common
+
+      program test_assumed_shape
+        use common
+        implicit none
+
+        ! integer, allocatable :: A(:)[:]
+
+        ! allocate (A(10)[*])
+
+        integer :: A(10)[*]
+
+
+        A = this_image()
+        if (this_image() == 1) then
+          call foo(A)
+        end if
+
+        sync all
+
+        print *, A
+      end program

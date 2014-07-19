@@ -1,0 +1,43 @@
+            ! errors observed on whale when running with 64 images
+            !
+            ! when running with niter>3 and last_image=50, it will hang
+            ! during one of the writes/reads for GASNet IBV (turn off
+            ! GASNET_VIS_AMPIPE to prevent this, but that results in
+            ! worse performance)
+            !
+            ! when running with niter=50 and last_image=11, it exits
+            ! abnormally when using GASNet IBV (not all the processes
+            ! call MPI_Finalize for some reason).
+            !
+            ! the bugs seem related. in both cases, using IBV conduit,
+            ! using strided transfers, and using GASNET_VIS_AMPIPE=1.
+            ! The termination error seems to occur for different sizes
+            ! of N, though its more likely to occur with large N. the
+            ! hanging error looks to be much more predictable.
+            !
+            ! possible solution is to handle the AM packing/unpacking
+            ! for non-contiguous transfers myself rather than relying on
+            ! GASNET_VIS_AMPIPE.
+
+      program test
+            double precision, allocatable :: a(:,:,:)[:], b(:,:)[:]
+            integer, parameter :: niter=50
+            integer, parameter :: last_image=11
+            integer, parameter :: N=128
+            integer :: i, j
+
+            allocate (a(2,N,N)[*])
+            allocate (b(N,N)[*])
+
+              do j =1,niter
+                if (this_image() == 1) then
+                  do i=2,last_image
+                    write (*,'("writing to ", I4, ", j = ", I4)') i, j
+                    a(2,:,:)[i] = b(:,:)
+!                    write (*,'("reading from ", I4, ", j = ", I4)') i, j
+!                    b(:,:) = a(2,:,:)[i]
+                  end do
+                end if
+                sync all
+              end do
+        end program

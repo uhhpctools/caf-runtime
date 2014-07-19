@@ -1,0 +1,44 @@
+! Non-Unit Stride Read Test
+
+! This tests support for non-unit strided read accesses. This entails the use
+! of subscripts with explicit strides. Here, image 1 does a non-unit stride read
+! access from image 2, and print ths contents of the data it read.
+
+
+      program test_nus_read
+        integer, allocatable :: a(:,:)[:]
+
+        allocate ( a(10,10)[*] )
+
+        a = this_image()
+
+        a(1:10:3, 1:10:2) = this_image()*10
+
+        if (this_image() == 2) then
+          print *, "printing a on image 2 ..."
+          do i=1,10
+            print *, a(i,:)
+          end do
+          call flush(6)
+        end if
+
+
+        sync all
+
+        if (this_image() == 1) then
+          a(1:4, 1:5) = a(1:4, 1:10:2)[2]
+        end if
+
+        sync all
+
+        if (this_image() == 1) then
+          print *, "printing a on image 1 (after update) ..."
+          do i=1,10
+            print *, a(i,:)
+          end do
+          call flush(6)
+        end if
+
+        deallocate(a)
+
+      end program

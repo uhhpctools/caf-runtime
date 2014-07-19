@@ -1,0 +1,21 @@
+!====================================
+! Testing Image Enquiry Functions:
+!   this_image(x)
+!   lcobound(x)
+!   ucobound(x)
+!   image_index
+!====================================
+
+  PROGRAM ENQUIRY_FUNCTIONS
+    IMPLICIT NONE
+    real :: a(10)[2:2,3:4,0:*]
+    print *,this_image(),": This image(a):",this_image(a)
+    print *,this_image(),": This image(a,1):",this_image(a,1)," This image(a,2):",this_image(a,2)," This image(a,3):",this_image(a,3)
+    if(this_image()==1) then
+        print *,this_image(),":lcobound:", lcobound(a),"lcobound(a,1):", lcobound(a,1),"lcobound(a,2):", lcobound(a,2),"lcobound(a,3):", lcobound(a,3)
+        print *,this_image(),":ucobound:", ucobound(a),"ucobound(a,1):", ucobound(a,1),"ucobound(a,2):", ucobound(a,2),"ucobound(a,3):", ucobound(a,3)
+        print *,this_image(),":image_index(a,(/2,4,0/)):", image_index(a,(/2,4,0/))
+        print *,this_image(),":image_index(a,(/2,4,1/)):", image_index(a,(/2,4,1/))
+        print *,this_image(),":image_index(a,(/2,3,2/)):", image_index(a,(/2,3,2/))
+    end if
+  END PROGRAM ENQUIRY_FUNCTIONS

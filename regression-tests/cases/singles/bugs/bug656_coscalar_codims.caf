@@ -1,0 +1,42 @@
+! Test for Bug 656
+! Checks that for scalar coarrays the codims info are used correctly for
+! intrinsic functions image_index, lcobound, and ucobound
+
+program main
+    implicit none
+
+    interface
+        subroutine f(z)
+            integer :: z[*]
+        end subroutine
+    end interface
+
+    type t1
+        integer, allocatable :: z2[:,:]
+    end type
+
+    type(t1) :: a
+    integer :: z[2:3,2:*]
+
+    allocate( a%z2[2:3,2:*])
+
+    if (this_image() == 1) then
+        print *, "in main: image_index(z, (/2,2/) = ", image_index(z,(/2,2/))
+        print *, "in main: lcobound(z) = ", lcobound(z)
+        print *, "in main: ucobound(z) = ", ucobound(z)
+
+        print *, "in main: image_index(a%z2, (/2,2/) = ", image_index(a%z2,(/2,2/))
+        print *, "in main: lcobound(a%z2) = ", lcobound(a%z2)
+        print *, "in main: ucobound(a%z2) = ", ucobound(a%z2)
+
+        call f(a%z2)
+    end if
+
+end program
+
+subroutine f(z)
+    integer :: z[2:3,2:*]
+    print *, "in f(z): image_index(z, (/2,2/) = ", image_index(z,(/2,2/))
+    print *, "in f(z): lcobound(z) = ", lcobound(z)
+    print *, "in f(z): ucobound(z) = ", ucobound(z)
+end subroutine

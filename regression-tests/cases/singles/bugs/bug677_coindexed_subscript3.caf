@@ -1,0 +1,135 @@
+! Coindexed Subscript Test 3
+
+      program bug677c
+          type uu
+              integer :: bb1(5)
+          end type
+
+          type tt
+              integer :: aa01
+              integer :: aa02
+              integer :: aa1(5)
+          end type
+
+          type(tt) :: a0[*]
+          type(uu) :: b0[*]
+          integer :: t, u(5)
+          logical :: success
+
+          success = .true.
+
+          a0%aa01 = 10*this_image() + 1
+          a0%aa02 = 10*this_image() + 2
+          a0%aa1(1) = 10*this_image() + 3
+          a0%aa1(2) = 10*this_image() + 4
+          a0%aa1(3) = 10*this_image() + 5
+          a0%aa1(4) = 10*this_image() + 6
+          a0%aa1(5) = 10*this_image() + 7
+
+          b0%bb1(1) = 10*this_image() + 1
+          b0%bb1(2) = 10*this_image() + 2
+          b0%bb1(3) = 10*this_image() + 3
+          b0%bb1(4) = 10*this_image() + 4
+          b0%bb1(5) = 10*this_image() + 5
+
+          sync all
+
+          if (this_image() == 1) then
+              t = a0[2]%aa01
+              a0[3]%aa01 = t
+              if (t /= 21) then
+                  print *, "wrong value for a0[2]%aa01: ", t
+                  success = .false.
+              end if
+
+              t = a0[2]%aa02
+              a0[3]%aa02 = t
+              if (t /= 22) then
+                  print *, "wrong value for a0[2]%aa02: ", t
+                  success = .false.
+              end if
+
+              t = a0[2]%aa1(3)
+              a0[3]%aa1(3) = t
+              if (t /= 25) then
+                  print *, "wrong value for a0[2]%aa1(3): ", t
+                  success = .false.
+              end if
+
+              t = b0[2]%bb1(3)
+              b0[3]%bb1(3) = t
+              if (t /= 23) then
+                  print *, "wrong value for b0[2]%bb1(3): ", t
+                  success = .false.
+              end if
+
+              u(:) = a0[2]%aa1(:)
+              a0[3]%aa1(:) = u(:)
+              if ( any( u(:) /= [23,24,25,26,27] ) ) then
+                  print *, "wrong values for a0[2]%aa1(:): ", u
+                  success = .false.
+              end if
+
+              u(:) = b0[2]%bb1(:)
+              b0[3]%bb1(:) = u(:)
+              if ( any( u(:) /= [21,22,23,24,25] ) ) then
+                  print *, "wrong values for b0[2]%bb1(:): ", u
+                  success = .false.
+              end if
+
+              if (success) then
+                  print *, "SUCCESS"
+              else
+                  print *, "FAIL"
+              end if
+
+          end if
+
+          sync all
+
+          if (this_image() == 3) then
+              t = a0%aa01
+              if (t /= 21) then
+                  print *, "wrong value for a0%aa01: ", t
+                  success = .false.
+              end if
+
+              t = a0%aa02
+              if (t /= 22) then
+                  print *, "wrong value for a0%aa02: ", t
+                  success = .false.
+              end if
+
+              t = a0%aa1(3)
+              if (t /= 25) then
+                  print *, "wrong value for a0%aa1(3): ", t
+                  success = .false.
+              end if
+
+              t = b0%bb1(3)
+              if (t /= 23) then
+                  print *, "wrong value for b0%bb1(3): ", t
+                  success = .false.
+              end if
+
+              u(:) = a0%aa1(:)
+              if ( any( u(:) /= [23,24,25,26,27] ) ) then
+                  print *, "wrong values for a0%aa1(:): ", u
+                  success = .false.
+              end if
+
+              u(:) = b0%bb1(:)
+              if ( any( u(:) /= [21,22,23,24,25] ) ) then
+                  print *, "wrong values for b0%bb1(:): ", u
+                  success = .false.
+              end if
+
+              if (success) then
+                  print *, "SUCCESS"
+              else
+                  print *, "FAIL"
+              end if
+          end if
+
+
+      end program

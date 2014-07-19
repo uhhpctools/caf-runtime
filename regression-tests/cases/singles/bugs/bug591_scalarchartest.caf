@@ -1,0 +1,24 @@
+
+
+      program char_str_test
+            !string array coarray
+            character*3 :: ch(2)[*]  
+            !scalar type coarray 
+            character*2::sc[*]
+            !vector  coarray with 2 dimensions
+            character ::vc(2,3)[*]
+            integer :: q(4,2)[*]
+            if(this_image() == 1 ) then
+             ch(1)='ab1'
+             ch(1)[2]='ab2'
+             sc[2]='X'
+             sc=sc[2]
+             vc(:,:)='1'
+             vc(:,:)[2]='2'
+             
+            endif
+            sync all
+            print *,this_image(),": ch(1)= ", ch(1)
+            print *,this_image(),": sc= ", sc           
+            print *,this_image(),": vc(:,:)= ", vc
+      end program char_str_test

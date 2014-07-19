@@ -1,0 +1,6 @@
+ Allocatable test
+ t is        :  20 20 20 20 20 21 21 21 21 21
+ t should be :  20 20 20 20 20 21 21 21 21 21
+ Non-allocatable test
+ t is        :  20 20 20 20 20 21 21 21 21 21
+ t should be :  20 20 20 20 20 21 21 21 21 21

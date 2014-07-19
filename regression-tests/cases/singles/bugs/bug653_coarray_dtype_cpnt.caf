@@ -1,0 +1,12 @@
+      program main
+          type struct
+              integer :: x, y
+          end type
+
+          type(struct) :: a[*]
+
+          a%x = 1
+          a%y = 2
+
+          write (*, '(i3i3)') a%x, a%y
+      end program

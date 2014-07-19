@@ -1,0 +1,97 @@
+      ! bug622: tests use of coscalar in this_image and image_index
+      !         and lcobound and ucobound intrinsics.
+
+      program bug622_intrin_coscalar
+
+        integer :: a[2,*]
+        integer,allocatable :: b[:,:]
+        integer :: x, y, z(2)
+
+        if (this_image() == 1) then
+           print *, "Testing non-allocatables"
+           call flush(6)
+        end if
+        sync all
+
+        ! test this_image intrinsic
+        z = this_image(a)
+        x = this_image(a,1)
+        y = this_image(a,2)
+        print *, this_image(), ": [this_image] (x, y, z) = ", x, y, z
+
+        call flush(6)
+
+        sync all
+
+       ! test image_index intrinsic
+       if (this_image() == 1) then
+           x = image_index( a, (/1,1/))
+           print *, " image_index(a,(/1,1/)) = ", x
+           x = image_index( a, (/1,2/))
+           print *, " image_index(a,(/1,2/)) = ", x
+           x = image_index( a, (/2,1/))
+           print *, " image_index(a,(/2,1/)) = ", x
+           x = image_index( a, (/2,2/))
+           print *, " image_index(a,(/2,2/)) = ", x
+       end if 
+
+       ! test lcobound and ucobound intrinsics
+       if (this_image() == 1) then
+           z = lcobound(a)
+           x = lcobound(a,1)
+           y = lcobound(a,2)
+           print *, " [lcobound] (x, y, z) = ", x, y, z
+           z = ucobound(a)
+           x = ucobound(a,1)
+           y = ucobound(a,2)
+           print *, " [ucobound] (x, y, z) = ", x, y, z
+       end if 
+
+       call flush(6)
+       sync all
+       if (this_image() == 1) then
+           print *, ""
+           print *, "Testing allocatables"
+           call flush(6)
+        end if
+       sync all
+
+       ! test with allocatable coscalars as well
+       allocate( b[2,*] )
+
+        ! test this_image intrinsic
+        z = this_image(b)
+        x = this_image(b,1)
+        y = this_image(b,2)
+        print *, this_image(), ": [this_image] (x, y, z) = ", x, y, z
+
+        call flush(6)
+        sync all
+
+       ! test image_index intrinsic
+       if (this_image() == 1) then
+           x = image_index( b, (/1,1/))
+           print *, " image_index(a,(/1,1/)) = ", x
+           x = image_index( b, (/1,2/))
+           print *, " image_index(a,(/1,2/)) = ", x
+           x = image_index( b, (/2,1/))
+           print *, " image_index(a,(/2,1/)) = ", x
+           x = image_index( b, (/2,2/))
+           print *, " image_index(a,(/2,2/)) = ", x
+       end if 
+
+       ! test lcobound and ucobound intrinsics
+       if (this_image() == 1) then
+           z = lcobound(b)
+           x = lcobound(b,1)
+           y = lcobound(b,2)
+           print *, " [lcobound] (x, y, z) = ", x, y, z
+           z = ucobound(b)
+           x = ucobound(b,1)
+           y = ucobound(b,2)
+           print *, " [ucobound] (x, y, z) = ", x, y, z
+       end if 
+
+       deallocate( b )
+
+      end program

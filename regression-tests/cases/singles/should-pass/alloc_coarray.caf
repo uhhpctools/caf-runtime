@@ -1,0 +1,15 @@
+! Allocatable Coarray Test
+
+! Basic test for an allocatable coarray.
+! Allocate the coarray, locally modify it, and print the contents.
+
+        program alloc_coarray
+            real, allocatable, dimension(:), codimension[:] :: a(:)[:]
+
+            allocate( a(10)[*] )
+
+            a = this_image()
+
+            print *, a
+
+        end program

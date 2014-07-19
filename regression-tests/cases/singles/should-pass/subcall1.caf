@@ -1,0 +1,27 @@
+! Coarray subroutine argument test
+
+! This is a simple test for passing a coarray as an argument into a
+! subroutine.
+
+        program subcall1
+            interface
+                subroutine foo(A)
+                    integer, dimension(10), codimension[*] :: A
+                end subroutine foo
+            end interface
+
+            integer, dimension(10), codimension[*] :: A
+
+            call foo(A)
+
+            if (this_image() == 1) then
+                print *, "A is ", A
+            end if
+        end program
+
+        subroutine foo(A)
+            integer, dimension(10), codimension[*] :: A
+
+            A = this_image()
+            sync all
+        end subroutine

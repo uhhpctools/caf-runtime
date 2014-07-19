@@ -1,0 +1,36 @@
+! Read into strided destination test
+
+! Reads a remote contiguous section into a local strided destination
+! buffer.
+
+      program main
+          integer :: a(40,40)
+          integer :: c(40,40)
+          integer :: b(10,10)[*]
+          integer :: i, j
+
+          b = this_image()
+          a = 0
+          c = 0
+
+          sync all
+
+          if (this_image() == 1) then
+              a(11:20,11:20) = b(1:10,1:10)[2]
+              c(11:20,11:20) = 2
+          end if
+
+          sync all
+
+          if (this_image() == 1) then
+              if (any( a /= c ) ) then
+                  print *, "FAILURE: array mismatch"
+                  do i=1,40
+                    write (*, '(40I2)') (/ (a(i,j), j=1,40) /)
+                  end do
+              else
+                  print *, "SUCCESS"
+              end if
+          end if
+
+      end program

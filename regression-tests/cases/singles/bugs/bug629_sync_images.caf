@@ -1,0 +1,22 @@
+      program main
+        integer :: neighbors(1)
+        integer :: iam
+
+        iam = this_image()
+
+        if (num_images() /= 2) then
+            ERROR STOP "need to run this program with exactly 2 images"
+        end if
+
+        if (iam == 1) then
+            neighbors = (/ 2 /)
+            print *, iam, ": (before) neighbors = ", neighbors
+            sync images (neighbors)
+            print *, iam, ": (after) neighbors = ", neighbors
+        else
+            neighbors = (/ 1 /)
+            print *, iam, ": (before) neighbors = ", neighbors
+            sync images (neighbors)
+            print *, iam, ": (after) neighbors = ", neighbors
+        end if
+      end program

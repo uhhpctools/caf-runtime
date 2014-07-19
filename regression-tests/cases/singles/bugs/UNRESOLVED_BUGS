@@ -1,0 +1,18 @@
+----------------
+UH CAF Bug Tests
+----------------
+
+This directory contains a set of simple tests for bugs that were encountered
+in the UH CAF implementation in the past. In this document, we list tests for
+bugs which are still unresolved.
+
+Current tests for unresolved bugs:
+
+bug667_gasnet_vis_ampipe.caf
+bug674_allocate_stmt.caf
+
+These are Open64 unresolved bugs that we found, not specific to our
+implementation:
+
+bug669_pointer_cpnt_copy.caf
+bug673_pointer_initialize.caf

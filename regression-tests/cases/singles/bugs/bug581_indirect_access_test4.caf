@@ -1,0 +1,35 @@
+! Bug 581 (Test 4) Accessing a remote array section component of a
+! derived type fails, even if its not a pointer/allocatable.
+! Author: Deepak Eachempati
+
+      module tests
+
+      type grid_t
+        integer :: u
+        integer :: v
+        integer :: d(5)
+      end type 
+
+      end module tests
+
+      program main
+      use tests
+
+      type(grid_t) :: my_grid[*]
+      integer :: t(5)
+
+      my_grid%u = 1000*this_image()
+      my_grid%v = 100*this_image()
+      my_grid%d = this_image()
+
+      sync all
+
+      if (this_image() == 1) then
+        t(1) = my_grid[2]%u
+        t(2) = my_grid[2]%v
+        t(3) = my_grid[2]%d(1)
+        t(4:5) = my_grid[2]%d(2:3)  ! bug 581 runtime error
+        print *, "t = ", t
+      end if
+
+      end program

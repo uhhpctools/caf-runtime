@@ -1,0 +1,91 @@
+! Lock Test
+
+! This tests the functionality of locks in the CAF implementation. Every image
+! competes for the lock in a loop and increments a counter total when it
+! successfully acquires the lock and another counter fail_total when it
+! doesn't get the lock. In the end, the counts are totalled across all images
+! (using the non-standard co_sum intrinsic) and verified. If multiple images
+! at any point acquired the lock at the same time, then this should catch it.
+
+      module utils
+
+          integer, private :: t1(8), t2(8)
+          double precision, private :: t
+
+          contains
+#ifdef TIME_IT
+          subroutine start_time()
+            call date_and_time(values=t1)
+          end subroutine
+
+          subroutine end_time()
+            call date_and_time(values=t2)
+            t = 3600*(t2(5)-t1(5)) + 60*(t2(6)-t1(6)) + (t2(7)-t1(7))   &
+                + .001*(t2(8)-t1(8))
+          end subroutine
+
+          subroutine print_time()
+              print *, this_image(), ": t = ", t
+          end subroutine
+#else
+          subroutine start_time()
+          end subroutine
+
+          subroutine end_time()
+          end subroutine
+
+          subroutine print_time()
+          end subroutine
+#endif
+
+      end module
+
+      program main
+          use utils
+          use, intrinsic :: iso_fortran_env, only: lock_type
+
+          integer, parameter :: N = 10000
+          integer :: me
+          integer :: total[*]
+          type(lock_type) :: my_lock1[*]
+          logical (kind=1) :: success
+          integer :: fail_count[*]
+          integer :: fail_total
+
+          me = this_image()
+          total = 0
+          fail_count = 0
+
+          sync all
+
+          if (me <= 4) then
+              call start_time()
+              do i = 1, N
+              lock( my_lock1[2], acquired_lock=success )
+              if (success) then
+                  total[2] = total[2] + 1
+                  unlock( my_lock1[2] )
+              else
+                  fail_count = fail_count + 1
+              end if
+              end do
+              call end_time()
+          end if
+
+          sync all
+
+          if (me <= 4) then
+              call print_time()
+              call flush(6)
+          end if
+
+          call co_sum(fail_count, fail_total)
+          total = total[2]
+
+          if ( total /= (4*N - fail_total) ) then
+              print *, me, ": FAILURE: ", total, 4*N, fail_total
+          else
+              print *, me, ": SUCCESS"
+          end if
+
+      end program

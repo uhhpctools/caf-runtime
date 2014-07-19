@@ -1,0 +1,9 @@
+ in main: image_index(z, (/2,2/) =  1
+ in main: lcobound(z) =  2 2
+ in main: ucobound(z) =  3 3
+ in main: image_index(a%z2, (/2,2/) =  1
+ in main: lcobound(a%z2) =  2 2
+ in main: ucobound(a%z2) =  3 3
+ in f(z): image_index(z, (/2,2/) =  1
+ in f(z): lcobound(z) =  2 2
+ in f(z): ucobound(z) =  3 3

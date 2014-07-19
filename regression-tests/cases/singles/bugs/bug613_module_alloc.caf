@@ -1,0 +1,26 @@
+      module global_data
+        integer, allocatable :: y(:)[:]
+      end module 
+
+      program module_alloc_test
+
+        use global_data
+
+        interface
+          subroutine print_val()
+          end subroutine
+        end interface 
+
+        allocate( y(1)[*] )
+
+        y = this_image()
+
+        call print_val()
+
+      end program
+
+      subroutine print_val()
+        use global_data
+
+        print *, "y = ", y
+      end subroutine print_val

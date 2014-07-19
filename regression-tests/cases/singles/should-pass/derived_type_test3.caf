@@ -1,0 +1,64 @@
+! Derived Type Test 3
+
+! Create an allocatable and non-allocatable coarray of a derived type. Then,
+! for each, tests co-indexed accesses of an array component of a component of
+! that coarray. So, this is testing that component chains are dereferenced
+! correctly for co-indexed accesses.
+
+        program main
+          integer, parameter :: N = 10
+          type T2
+              integer :: x,y,z
+              integer :: c(N/2)
+          end type
+          type T1
+              integer :: x,y,z
+              type(T2) :: b(2)
+          end type
+
+          type(T1), allocatable :: a1[:]
+          type(T1) :: a2[*]
+          integer :: iam
+          integer :: t(N)
+
+          ! test with allocatable
+
+          allocate ( a1[*] )
+
+          a1%b(1)%c(:) = 10*this_image()
+          a1%b(2)%c(:) = 10*this_image()+1
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:5) = a1[2]%b(1)%c(:)
+            t(6:10) = a1[2]%b(2)%c(:)
+            print *, "Allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ 20, 20, 20, 20, 20, 21, 21, 21, 21, 21 /)
+          end if
+
+          sync all
+
+          ! test with non-allocatable
+
+          a2%b(1)%c(:) = 10*this_image()
+          a2%b(2)%c(:) = 10*this_image()+1
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:5) = a2[2]%b(1)%c(:)
+            t(6:10) = a2[2]%b(2)%c(:)
+            print *, "Non-allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ 20, 20, 20, 20, 20, 21, 21, 21, 21, 21 /)
+          end if
+
+        end program

@@ -1,0 +1,11 @@
+      program main
+          type dt
+              integer, allocatable :: a(:)
+          end type
+
+          type(dt) :: d[*]
+
+          print *,  d[this_image()]%a(1)
+
+      end program
+

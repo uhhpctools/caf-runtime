@@ -1,0 +1,135 @@
+! Bounds Test for coarray
+
+! Some tests to test image inquiry functions that use coarray
+! codimension info
+! Author: Deepak Eachempati
+
+           module tests
+               public:: test1, test2
+
+               contains
+
+               subroutine test1(A)
+                   integer, allocatable :: A(:)[:,:]
+
+                   allocate( A(5:10)[3:5,*])
+               end subroutine
+
+                  subroutine test2(A)
+                    integer :: A(:)[*]
+
+                    A = this_image()
+                    A(1) = A(1)*100
+
+                    if (this_image() == 1) then
+                        print *, "(test2) lcobound(A) = ", lcobound(A)
+                        print *, "(test2) ucobound(A) = ", ucobound(A)
+                    end if
+
+                    sync all
+                  end subroutine
+          end module tests
+
+        program bounds_tests
+            use tests
+
+            integer, allocatable :: A(:)[:,:]
+            integer :: B(5:10)[3:5,*]
+            integer :: i
+
+            ! allocate A
+            call test1(A)
+
+              sync all
+
+                if (this_image() == 1) then
+                  print *, "(before test2) lcobound(A): ", lcobound(A)
+                  print *, "(before test2) lcobound(A,1): ", lcobound(A,1)
+                  print *, "(before test2) lcobound(A,2): ", lcobound(A,2)
+                  print *, "(before test2) ucobound(A): ", ucobound(A)
+                  print *, "(before test2) ucobound(A,1): ", ucobound(A,1)
+                  print *, "(before test2) ucobound(A,2): ", ucobound(A,2)
+                  print *, "(before test2) lcobound(B): ", lcobound(B)
+                  print *, "(before test2) lcobound(B,1): ", lcobound(B,1)
+                  print *, "(before test2) lcobound(B,2): ", lcobound(B,2)
+                  print *, "(before test2) ucobound(B): ", ucobound(B)
+                  print *, "(before test2) ucobound(B,2): ", ucobound(B,1)
+                  print *, "(before test2) ucobound(B,2): ", ucobound(B,2)
+                endif
+
+          ! initialize A
+          call test2(A)
+
+                if (this_image() == 1) then
+                  print *, "(after test2) lcobound(A): ", lcobound(A)
+                  print *, "(after test2) lcobound(A,1): ", lcobound(A,1)
+                  print *, "(after test2) lcobound(A,2): ", lcobound(A,2)
+                  print *, "(after test2) ucobound(A): ", ucobound(A)
+                  print *, "(after test2) ucobound(A,1): ", ucobound(A,1)
+                  print *, "(after test2) ucobound(A,2): ", ucobound(A,2)
+                  print *, "(after test2) lcobound(B): ", lcobound(B)
+                  print *, "(after test2) lcobound(B,1): ", lcobound(B,1)
+                  print *, "(after test2) lcobound(B,2): ", lcobound(B,2)
+                  print *, "(after test2) ucobound(B): ", ucobound(B)
+                  print *, "(after test2) ucobound(B,2): ", ucobound(B,1)
+                  print *, "(after test2) ucobound(B,2): ", ucobound(B,2)
+                endif
+
+          print *, "A: ", A(:)
+
+           if (this_image() == 1) then
+             print *, "image_index(A, (/3,1/): ",  image_index(A, (/3,1/))
+              print *, "image_index(A, (/4,1/): ", image_index(A, (/4,1/))
+              print *, "image_index(A, (/5,1/): ", image_index(A,(/5,1/))
+              print *, "image_index(A, (/3,2/): ", image_index(A, (/3,2/))
+             print *, "image_index(B, (/3,1/): ",  image_index(A, (/3,1/))
+              print *, "image_index(B, (/4,1/): ", image_index(A, (/4,1/))
+              print *, "image_index(B, (/5,1/): ", image_index(A,(/5,1/))
+              print *, "image_index(B, (/3,2/): ", image_index(A, (/3,2/))
+           end if
+
+            sync all
+            if (this_image() == 1) then
+              print *, "this_image() = ", this_image()
+              print *, "this_image(A) = ", this_image(A)
+              print *, "this_image(A,1) = ", this_image(A,1)
+              print *, "this_image(A,2) = ", this_image(A,2)
+              print *, "this_image(B) = ", this_image(B)
+              print *, "this_image(B,1) = ", this_image(B,1)
+              print *, "this_image(B,2) = ", this_image(B,2)
+            end if
+
+            sync all
+            if (this_image() == 2) then
+              print *, "this_image() = ", this_image()
+              print *, "this_image(A) = ", this_image(A)
+              print *, "this_image(A,1) = ", this_image(A,1)
+              print *, "this_image(A,2) = ", this_image(A,2)
+              print *, "this_image(B) = ", this_image(B)
+              print *, "this_image(B,1) = ", this_image(B,1)
+              print *, "this_image(B,2) = ", this_image(B,2)
+            end if
+
+            sync all
+            if (this_image() == 3) then
+              print *, "this_image() = ", this_image()
+              print *, "this_image(A) = ", this_image(A)
+              print *, "this_image(A,1) = ", this_image(A,1)
+              print *, "this_image(A,2) = ", this_image(A,2)
+              print *, "this_image(B) = ", this_image(B)
+              print *, "this_image(B,1) = ", this_image(B,1)
+              print *, "this_image(B,2) = ", this_image(B,2)
+            end if
+
+            sync all
+            if (this_image() == 4) then
+              print *, "this_image() = ", this_image()
+              print *, "this_image(A) = ", this_image(A)
+              print *, "this_image(A,1) = ", this_image(A,1)
+              print *, "this_image(A,2) = ", this_image(A,2)
+              print *, "this_image(B) = ", this_image(B)
+              print *, "this_image(B,1) = ", this_image(B,1)
+              print *, "this_image(B,2) = ", this_image(B,2)
+            end if
+
+        end program

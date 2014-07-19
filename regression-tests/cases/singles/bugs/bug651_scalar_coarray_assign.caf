@@ -1,0 +1,35 @@
+      module bug651
+          implicit none
+          contains
+          subroutine test1(t)
+              integer, intent(inout) :: t
+              integer, save :: a[*]
+              integer, save :: b[*]
+
+              a[1] = t
+
+              b[1] = a[1]
+
+              t = b[1]
+          end subroutine test1
+      end module
+
+      program main
+          use bug651
+          implicit none
+
+          integer, parameter :: val = 1000
+          integer :: t
+
+          if (this_image() == 1) then
+              t = val
+
+              call test1(t)
+
+              if (t /= val) then
+                  print *, "wrong value for t: ", t
+              else
+                  print *, "success (test1)"
+              end if
+          end if
+      end program

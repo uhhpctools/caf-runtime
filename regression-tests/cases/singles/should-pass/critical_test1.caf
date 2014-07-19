@@ -1,0 +1,24 @@
+! Critical Section Test
+
+! This is a basic correctness test for critical section. Only one image may !
+! execute the critical section at the same time.
+
+      program critical_test1
+          integer :: me
+          integer :: counter[*]
+          integer :: check(2)
+
+          me = this_image()
+
+          critical
+            check(1) = counter[1]
+
+            check(2) = counter[1]
+
+            counter[1] = counter[1] + 1
+
+            print *, "check: ", check(1), check(2)
+          end critical
+
+
+      end program

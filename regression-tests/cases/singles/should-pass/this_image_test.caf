@@ -1,0 +1,9 @@
+! this_image test
+
+! just a simple call to this_image routine for a coarray with corank=2
+
+      program this_image_test
+            real, dimension(5,5), codimension[2,*] :: A
+
+            print *, this_image(A)
+        end program

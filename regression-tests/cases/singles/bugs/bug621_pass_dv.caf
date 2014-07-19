@@ -1,0 +1,29 @@
+      module bug621_test
+        contains 
+
+        subroutine f(a,b,c)
+          integer :: a(:)[2,*]
+          integer :: b(5) ! corrupted with -O0
+          integer :: c(:) ! will cause a crash due to address field of 
+                          ! DV being overwritten
+
+          print *, "b should be 5 5 5 5 5"
+          print *, "b = ", a
+          print *, "c should be 5 5 5 5 5"
+          print *, "c = ", c
+        end subroutine
+
+      end module
+
+      program main
+        use bug621_test
+        integer, allocatable :: a(:)[:]
+        integer :: b(5)
+        integer :: c(5)
+
+        if (this_image() == 1) then
+            b = 5
+            c = 5
+            call f(a,b,c)
+        end if  
+      end program

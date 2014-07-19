@@ -1,0 +1,35 @@
+
+module tests
+    contains
+subroutine test1(a,b)
+    integer :: a[*]
+    integer :: b[*]
+    integer :: ti
+
+    b[2]  = a
+end subroutine test1
+
+end module
+
+program bug657
+    use tests
+
+    integer :: a[*], b[*]
+
+    a = this_image()
+
+    sync all
+
+    if (this_image() == 1) then
+        call test1(a,b)
+    end if
+
+    sync all
+
+    if (this_image() == 2) then
+        print *, "At image 2:"
+        print *, "b = ", b
+        print *, "b should be 1"
+    end if
+
+end program

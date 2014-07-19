@@ -1,0 +1,57 @@
+! Derived Type Test 4
+
+! This is like derived_type_test1, except it uses integers of KIND=2.
+
+        program main
+          integer, parameter :: N = 10
+          type T1
+              integer :: x,y,z
+              integer*2 :: b(N)
+          end type
+
+          type(T1), allocatable :: a1[:]
+          type(T1) :: a2[*]
+          integer :: iam
+          integer*2 :: t(N)
+
+          ! test with allocatable
+
+          allocate ( a1[*] )
+
+          a1%b(1:10:2) = 10*this_image()
+          a1%b(2:10:2) = 10*this_image()+1
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:5) = a1[2]%b(1:10:2)
+            t(6:10) = a1[2]%b(2:10:2)
+            print *, "Allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ 20, 20, 20, 20, 20, 21, 21, 21, 21, 21 /)
+          end if
+
+          sync all
+
+          ! test with non-allocatable
+
+          a2%b(1:10:2) = 10*this_image()
+          a2%b(2:10:2) = 10*this_image()+1
+
+          iam = this_image()
+
+          sync all
+
+          if (iam == 1) then
+            t(1:5) = a2[2]%b(1:10:2)
+            t(6:10) = a2[2]%b(2:10:2)
+            print *, "Non-allocatable test"
+            print *, "t is        : ", t(:)
+            print *, "t should be : ",  &
+               (/ 20, 20, 20, 20, 20, 21, 21, 21, 21, 21 /)
+          end if
+
+        end program

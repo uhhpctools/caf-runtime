@@ -1,0 +1,6 @@
+program bug673
+    integer, target, save :: b = 10
+    integer, pointer :: a => b
+
+    print *, "a = ", a
+end program bug673

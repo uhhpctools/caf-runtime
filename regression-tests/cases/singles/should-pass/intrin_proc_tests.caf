@@ -1,0 +1,120 @@
+! More coarray intrinsic subroutine argument tests
+! These tests verify that coarray arguments are being passed in correctly.
+
+program main
+    implicit none
+
+    integer, parameter :: N = 10
+    integer :: ti, ni
+    integer :: a1(2*N)[2,*]
+    integer :: a2(2,N)[2,*]
+    integer, allocatable :: a3(:)[:,:]
+
+    type T
+        integer :: c(2,N)
+    end type
+
+    type(T) :: a[2,*]
+
+    ti = this_image()
+    ni = num_images()
+
+    !------------------------------------------------------
+
+    sync all
+
+    ! pass contiguous slice of 1D array
+
+    if (ti == 3) print *, "contiguous slice of 1D array"
+
+    a1 = 0
+
+    sync all
+
+    if (ti == 3) then
+        print *, this_image(a1(1:N))
+        print *, image_index(a1(1:N), [1,2])
+        print *, lcobound(a1(1:N))
+        print *, ucobound(a1(1:N))
+    end if
+
+
+    sync all
+
+    ! strided slice of 1D array
+    if (ti == 3) print *, "strided slice of 1D array"
+
+    a1 = 0
+
+    sync all
+
+    if (ti == 3) then
+        print *, this_image(a1(1:2*N:2))
+        print *, image_index(a1(1:2*N:2), [1,2])
+        print *, lcobound(a1(1:2*N:2))
+        print *, ucobound(a1(1:2*N:2))
+    end if
+
+
+    sync all
+
+    !------------------------------------------------------
+
+    ! non-contiguous section of 2D array -- should NOT do copyin/copyout
+    ! for coarray argument
+    if (ti == 3) print *, "non-contiguous section of 2D array"
+
+    a2 = 0
+
+    sync all
+
+    if (ti == 3) then
+        print *, this_image(a2(1,1:N))
+        print *, image_index(a2(1,1:N), [1,2])
+        print *, lcobound(a2(1,1:N))
+        print *, ucobound(a2(1,1:N))
+    end if
+
+    sync all
+
+    !------------------------------------------------------
+
+    allocate( a3(2*N)[2,*])
+
+    ! a contiguous slice of an allocatable
+
+    if (ti == 3) print *, "contiguous slice of 1D allocatable array"
+
+    a3 = 0
+
+    sync all
+
+    if (ti == 3) then
+        print *, this_image(a3(1:N))
+        print *, image_index(a3(1:N), [1,2])
+        print *, lcobound(a3(1:N))
+        print *, ucobound(a3(1:N))
+    end if
+
+    sync all
+
+    !------------------------------------------------------
+
+    ! non-contiguous, component section of 2D array -- should NOT do
+    ! copyin/copyout for coarray argument
+    if (ti == 3) print *, "non-contiguous component section of 2D array"
+
+    a%c = 0
+
+    sync all
+
+    if (ti == 3) then
+        print *, this_image(a%c(1,1:N))
+        print *, image_index(a%c(1,1:N), [1,2])
+        print *, lcobound(a%c(1,1:N))
+        print *, ucobound(a%c(1,1:N))
+    end if
+
+    sync all
+
+end program

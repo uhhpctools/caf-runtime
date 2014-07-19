@@ -1,0 +1,41 @@
+! Pointer Test 1
+
+! Test functionality of a pointer component of a coarray being associated with
+! a local coarray target. Actually, need to confirm if this is legal, and if
+! not move it to the should-fail directory.
+
+        program main
+          implicit none
+
+          type T1
+              integer :: x, y, z
+              integer, pointer :: p(:)
+          end type
+
+          integer, parameter :: N = 10
+          integer, target :: b(N)
+          integer, target :: c(N)[*]
+          type(T1)        :: a[*]
+          integer         :: iam
+          integer         :: x, y
+
+          iam = this_image()
+
+          b(:) = iam
+
+          a%p => c
+
+          c = iam
+
+          sync all
+
+          if (iam == 1) then
+              print *, " a[1]%p(:) = ", a[1]%p(:)
+              print *, " a[2]%p(:) = ", a[2]%p(:)
+              print *, " a[3]%p(:) = ", a[3]%p(:)
+              print *, " a[4]%p(:) = ", a[4]%p(:)
+          end if
+
+          sync all
+
+        end program
