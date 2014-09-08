@@ -1,0 +1,15 @@
+! When compiling with -O3, it prints all 0s. The assignment b(:) = 156
+! is eliminated
+
+      program bug1
+          implicit none
+
+
+          integer, parameter :: N = 10
+          integer, volatile  :: b(N)
+
+          b(1:2) = 156
+          print *, "should be 156 156: ", b(1:2)
+
+        end program
+

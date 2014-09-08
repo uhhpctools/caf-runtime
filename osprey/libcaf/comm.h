@@ -30,6 +30,7 @@
 #define _COMM_H
 
 
+#include "team.h"
 #include "uthash.h"
 
 /* use this if we want the runtime to skip over duplicate images in the sync
@@ -73,6 +74,13 @@ typedef enum {
   SYNC_IMAGES_DEFAULT = 2
 } sync_images_t;
 
+typedef enum {
+  BAR_DISSEM = 0,
+  BAR_2LEVEL_MULTIFLAG = 1,
+  BAR_2LEVEL_SHAREDCOUNTER = 2,
+  TEAM_BAR_DEFAULT = 0
+} team_barrier_t;
+
 /* different types of rma ordering strategies */
 typedef enum {
   RMA_BLOCKING = 0,
@@ -102,6 +110,8 @@ size_t comm_get_proc_id();
 size_t comm_get_num_procs();
 
 size_t comm_get_node_id(size_t proc);
+
+void *comm_get_sharedptr(void *addr, size_t proc);
 
 /* non-strided (contiguous) read and write operations */
 void comm_nbread(size_t proc, void *src, void *dest, size_t nbytes,
@@ -176,6 +186,8 @@ void comm_lcb_free(void *ptr);
 
 /* barriers */
 void comm_sync_all(int *status, int stat_len, char *errmsg,
+                   int errmsg_len);
+void comm_sync_team(team_type_t *team, int *status, int stat_len, char *errmsg,
                    int errmsg_len);
 
 

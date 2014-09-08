@@ -33,7 +33,7 @@
 #include <ctype.h>
 #include "lock.h"
 #include "dopevec.h"
-
+#include "uthash.h"
 
 /* if an required asymmetric allocation will result in this percentage or
  * greater of the heap space consumed, then allocate out of default system
@@ -50,6 +50,18 @@ struct shared_memory_slot {
 };
 typedef struct shared_memory_slot shared_memory_slot_t;
 
+typedef struct alloc_dp_slot {
+    void *addr;
+    DopeVectorType *dp;
+    UT_hash_handle hh;
+} alloc_dp_slot;
+/*
+ * mem_block_t keeps track of shared memory slot for each team.
+ */
+typedef struct {
+    void *start_addr;
+    void *end_addr;
+} mem_block_t;
 
 typedef struct {
     size_t current_heap_usage;
@@ -59,12 +71,16 @@ typedef struct {
 
 /* SHARED MEMORY MANAGEMENT */
 
-void *coarray_allocatable_allocate_(unsigned long var_size, int* statvar);
+void *coarray_allocatable_allocate_(unsigned long var_size, DopeVectorType * dp,
+                                    int *statvar);
 void *coarray_asymmetric_allocate_(unsigned long var_size);
 void *coarray_asymmetric_allocate_if_possible_(unsigned long var_size);
 void coarray_asymmetric_deallocate_(void *var_address);
-void coarray_deallocate_(void *var_address, int* statvar);
+void coarray_deallocate_(void *var_address, int *statvar);
 void coarray_free_all_shared_memory_slots();
+void deallocate_within(void *start_addr, void *end_addr);
 
+unsigned long largest_allocatable_slot_avail(unsigned long size);
 
+void deallocate_team_all();
 #endif

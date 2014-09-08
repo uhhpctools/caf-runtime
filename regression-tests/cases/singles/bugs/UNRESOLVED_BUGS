@@ -16,3 +16,4 @@ implementation:
 
 bug669_pointer_cpnt_copy.caf
 bug673_pointer_initialize.caf
+bug678_volatile.caf

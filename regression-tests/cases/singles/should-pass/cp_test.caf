@@ -1,0 +1,30 @@
+! Test copy propagation is not done across sync statement
+
+        program cp_test
+            implicit none
+            integer :: a[*], b
+
+            a = 0
+            sync all
+
+            if (this_image() == 1) then
+                a = 5
+                sync all
+                b = a
+                sync all
+
+                print *, this_image(), ": b[1] = ", b
+            else if (this_image() == 2) then
+                sync all
+                b = a[1]
+                sync all
+
+                print *, this_image(), ": b[2] = ", b
+            else
+                sync all
+                sync all
+            end if
+
+
+        end program
+
