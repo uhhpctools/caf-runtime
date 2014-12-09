@@ -105,10 +105,12 @@ extern unsigned long _num_images;
 extern unsigned long _log2_images;
 extern unsigned long _rem_images;
 extern team_type     initial_team;
-extern mem_usage_info_t * init_mem_info;
-extern mem_usage_info_t * child_mem_info;
+extern mem_usage_info_t *mem_info;
+extern mem_usage_info_t *teams_mem_info;
 extern co_reduce_t co_reduce_algorithm;
 extern size_t alloc_byte_alignment;
+
+extern exchange_algorithm_t alltoall_exchange_algorithm;
 
 extern int rma_prof_rid;
 
@@ -130,7 +132,9 @@ extern shared_memory_slot_t * child_common_slot;
 extern int out_of_segment_rma_enabled;
 
 extern int enable_collectives_2level;
-extern int enable_collectives_1sided;
+extern int enable_reduction_2level;
+extern int enable_broadcast_2level;
+extern int enable_collectives_mpi;
 extern int mpi_collectives_available;
 extern int enable_collectives_use_canary;
 extern void *collectives_buffer;
@@ -208,10 +212,6 @@ typedef union {
 } sync_flag_t;
 static sync_flag_t *sync_flags = NULL;
 static char *sync_senses = NULL;
-
-/* for used by comm_sync_all_* */
-static sync_flag_t *bar_flags[2] = {NULL, NULL};
-static char *bar_senses = NULL;
 
 /*non-blocking put*/
 static struct nb_handle_manager nb_mgr[2];
@@ -555,7 +555,7 @@ inline void *comm_end_symmetric_mem(size_t proc)
      * the translation algorithm will treat it as part of the asymmetric
      * memory space
      */
-    return get_remote_address(child_common_slot->addr - 1, proc) + 1;
+    return get_remote_address(init_common_slot->addr - 1, proc) + 1;
 }
 
 inline void *comm_start_asymmetric_heap(size_t proc)
@@ -563,7 +563,7 @@ inline void *comm_start_asymmetric_heap(size_t proc)
     if (proc != my_proc) {
         return comm_end_symmetric_mem(proc);
     } else {
-        return (char *) child_common_slot->addr + child_common_slot->size;
+        return (char *) init_common_slot->addr + init_common_slot->size;
     }
 }
 
@@ -586,7 +586,7 @@ static inline int address_in_symmetric_mem(void *addr)
         return 1;
 
     start_symm_mem = coarray_start_all_images[my_proc].addr;
-    end_symm_mem = child_common_slot->addr;
+    end_symm_mem = init_common_slot->addr;
 
     return (addr >= start_symm_mem && addr < end_symm_mem);
 }
@@ -2329,19 +2329,12 @@ void comm_init()
     unsigned long image_heap_size;
 
     size_t collectives_offset;
-    unsigned long  init_heap_size;
+    unsigned long teams_heap_size;
 
-    extern mem_usage_info_t * init_mem_info;
-    extern mem_usage_info_t * child_mem_info;
+    extern mem_usage_info_t *mem_info;
+    extern mem_usage_info_t *teams_mem_info;
 
     size_t static_align;
-
-    if (init_common_slot != NULL) {
-        LIBCAF_TRACE(LIBCAF_LOG_FATAL,
-                     "init_common_slot has already been initialized");
-    }
-
-    init_common_slot = malloc(sizeof(shared_memory_slot_t));
 
     alloc_byte_alignment = get_env_size(ENV_ALLOC_BYTE_ALIGNMENT,
                                    DEFAULT_ALLOC_BYTE_ALIGNMENT);
@@ -2372,8 +2365,8 @@ void comm_init()
     caf_shared_memory_size = static_symm_data_total_size;
     image_heap_size = get_env_size_with_unit(ENV_IMAGE_HEAP_SIZE,
                                              DEFAULT_IMAGE_HEAP_SIZE);
-    init_heap_size = get_env_size_with_unit(ENV_INIT_TEAM_HEAP_SIZE,
-                                            DEFAULT_INIT_TEAM_HEAP_SIZE);
+    teams_heap_size = get_env_size_with_unit(ENV_TEAMS_HEAP_SIZE,
+                                            DEFAULT_TEAMS_HEAP_SIZE);
     caf_shared_memory_size += image_heap_size;
 
     gasnet_max_segsize = 2 * caf_shared_memory_size;
@@ -2458,6 +2451,26 @@ void comm_init()
         }
     }
 
+    /* which form team algorithm to use */
+    char *ft_alg;
+    ft_alg = getenv(ENV_FORM_TEAM_ALGORITHM);
+    alltoall_exchange_algorithm = ALLTOALL_BRUCK2;;
+
+    if (ft_alg != NULL) {
+        if (strncasecmp(ft_alg, "naive", 5) == 0) {
+            alltoall_exchange_algorithm = ALLTOALL_NAIVE;
+        } else if (strncasecmp(ft_alg, "bruck2", 6) == 0) {
+            alltoall_exchange_algorithm = ALLTOALL_BRUCK2;
+        } else if (strncasecmp(ft_alg, "bruck", 5) == 0) {
+            alltoall_exchange_algorithm = ALLTOALL_BRUCK;
+        } else {
+            if (my_proc == 0) {
+                Warning("FORM_TEAM_ALGORITHM %s is not supported. "
+                        "Using default", ft_alg);
+            }
+        }
+    }
+
     /* which sync images to use */
     char *si_alg;
     si_alg = getenv(ENV_SYNC_IMAGES_ALGORITHM);
@@ -2489,12 +2502,12 @@ void comm_init()
     team_barrier_algorithm = TEAM_BAR_DEFAULT;
 
     if(team_barrier_alg != NULL){
-        if (strncasecmp(team_barrier_alg, "dissemination", 16) == 0){
+        if (strncasecmp(team_barrier_alg, "dissemination", 13) == 0){
             team_barrier_algorithm = BAR_DISSEM;
 #if GASNET_PSHM
-        } else if (strncasecmp(team_barrier_alg, "2level_multiflag_dissem", 20) == 0) {
+        } else if (strncasecmp(team_barrier_alg, "2level_multiflag_dissem", 23) == 0) {
             team_barrier_algorithm = BAR_2LEVEL_MULTIFLAG;
-        } else if (strncasecmp(team_barrier_alg, "2level_sharedounter_dissem", 20) == 0) {
+        } else if (strncasecmp(team_barrier_alg, "2level_sharedcounter_dissem", 27) == 0) {
             team_barrier_algorithm = BAR_2LEVEL_SHAREDCOUNTER;
 #endif
         } else {
@@ -2539,7 +2552,7 @@ void comm_init()
     get_cache_sync_refetch = get_env_flag(ENV_GETCACHE_SYNC_REFETCH,
                                       DEFAULT_ENABLE_GETCACHE_SYNC_REFETCH);
 
-    out_of_segment_rma_enabled = get_env_flag(ENV_OUT_OF_SEGMENT_RMA,
+    out_of_segment_rma_enabled = (int)get_env_size(ENV_OUT_OF_SEGMENT_RMA,
                                        DEFAULT_ENABLE_OUT_OF_SEGMENT_RMA);
 
     nb_xfer_limit = get_env_size(ENV_NB_XFER_LIMIT, DEFAULT_NB_XFER_LIMIT);
@@ -2605,20 +2618,20 @@ void comm_init()
 
 
     if (caf_shared_memory_size / 1024 >= MAX_SHARED_MEMORY_SIZE / 1024) {
-		if (my_proc == 0) {
-		    Error("Image shared memory size must not exceed %lu GB",
-			  MAX_SHARED_MEMORY_SIZE / (1024 * 1024 * 1024));
-		}
-	    }
+        if (my_proc == 0) {
+            Error("Image shared memory size must not exceed %lu GB",
+              MAX_SHARED_MEMORY_SIZE / (1024 * 1024 * 1024));
+        }
+    }
 
-	    uintptr_t max_local = gasnet_getMaxLocalSegmentSize();
+	uintptr_t max_local = gasnet_getMaxLocalSegmentSize();
 
     if (my_proc == 0) {
         LIBCAF_TRACE(LIBCAF_LOG_INIT,
                      "gasnet max local segment size: %lu, "
-                     "requested caf_shared_memory_size: %lu,"
-                     "requested caf_init_heap_size: %lu",
-                     max_local, caf_shared_memory_size, init_heap_size);
+                     "requested caf_shared_memory_size: %lu, "
+                     "requested teams_heap_size: %lu",
+                     max_local, caf_shared_memory_size, teams_heap_size);
     }
 
     /* We observed that when using ibv conduit with FAST segment
@@ -2636,13 +2649,10 @@ void comm_init()
         if (my_proc == 0) {
             Warning("Requested shared memory size (%lu bytes) "
                     "exceeds system's resources by %lu bytes. Setting to %lu "
-                    "bytes instead."
-                    "setting the initial team heap size to %.2lf%%"
-                    "of shared memory",
+                    "bytes instead.",
                     (unsigned long) caf_shared_memory_size,
                     (unsigned long) caf_shared_memory_size - max_local,
-                     (unsigned long) max_local,
-                     0.75);
+                     (unsigned long) max_local);
         }
         caf_shared_memory_size = max_local;
     }
@@ -2653,10 +2663,22 @@ void comm_init()
         caf_shared_memory_pages++;
     caf_shared_memory_size = caf_shared_memory_pages * GASNET_PAGESIZE;
 
-    if (init_heap_size >= caf_shared_memory_size) {
-        init_heap_size = 0.75 * caf_shared_memory_size;
-    }
+    /* adjust image_heap_size */
+    image_heap_size = caf_shared_memory_size - static_symm_data_total_size;
 
+    /* adjust teams_heap_size */
+    if ( (teams_heap_size + MIN_HEAP_SIZE + static_symm_data_total_size) >
+          caf_shared_memory_size) {
+        /* let the first process issue a warning to the user */
+        teams_heap_size = caf_shared_memory_size -
+                (MIN_HEAP_SIZE + static_symm_data_total_size);
+        if (teams_heap_size < 0) teams_heap_size = 0;
+
+        if (my_proc == 0) {
+            Warning("teams_heap_size is too big. Reducing to %lu bytes.",
+                    teams_heap_size);
+        }
+    }
 
     /* gasnet everything ignores the last 2 params
      * note that attach is a collective operation */
@@ -2718,20 +2740,30 @@ void comm_init()
         everything_heap_start = coarray_start_all_images[my_proc].addr;
     }
 
-    /* initialize common shared memory slot */
-    init_common_slot->addr =
+    /* initialize the child common shared memory slot */
+    if (child_common_slot != NULL) {
+        LIBCAF_TRACE(LIBCAF_LOG_FATAL,
+                     "init_common_slot has already been initialized");
+    }
+
+    /* child common slot points to address just below static data section */
+    child_common_slot = malloc(sizeof(shared_memory_slot_t));
+    child_common_slot->addr =
         coarray_start_all_images[my_proc].addr +
         static_symm_data_total_size;
-    init_common_slot->size =
-        caf_shared_memory_size - static_symm_data_total_size;
-    init_common_slot->feb = 0;
-    init_common_slot->next = 0;
-    init_common_slot->prev = 0;
+    child_common_slot->size = teams_heap_size;
+    child_common_slot->feb = 0;
+    child_common_slot->next = 0;
+    child_common_slot->prev = 0;
+    child_common_slot->next_empty = 0;
+    child_common_slot->prev_empty = 0;
 
     shared_memory_size = caf_shared_memory_size;
-    /*Put the team initialize here, right before any allocatable_allcoate*/
 
-    /*Init the team stack*/
+    /* Put the team initialization here, right before any allocatable_allocate
+     * */
+
+    /* Init the team stack */
     global_team_stack = (team_stack_t *)
         malloc(sizeof(team_stack_t));
     global_team_stack->count = 0;
@@ -2741,7 +2773,8 @@ void comm_init()
     for (i = 0; i < num_procs; i++) {
         initial_team->codimension_mapping[i] = i;
     }
-    /*Add intranode_set array
+
+    /* Add intranode_set array
      * intranode_set[0] is the number of images shares same supernode with "me"
      * intranode_set[1] ~ intranode_set[intranode_set[0]] is proc_id of
      * those images
@@ -2767,7 +2800,7 @@ void comm_init()
 	    }
     }
 
-    /*Forming the leader set */
+    /* Forming the leader set */
     {
 	    int spnode_id = 0;
 	    long leader_id;
@@ -2800,6 +2833,7 @@ void comm_init()
 	    }
     }
 
+
     initial_team->current_this_image    = my_proc + 1;
     initial_team->current_num_images    = num_procs;
     initial_team->current_log2_images   = log2_procs;
@@ -2813,44 +2847,43 @@ void comm_init()
     initial_team->barrier.sense         = 0;
     initial_team->barrier.bstep         = NULL;
 
+    initial_team->allocated_list = NULL;
+
+    /* Init the init_common_slot */
+    if (init_common_slot == NULL) {
+        init_common_slot       = (shared_memory_slot_t *)
+                                   malloc(sizeof(shared_memory_slot_t));
+        init_common_slot->addr = child_common_slot->addr + teams_heap_size;
+        init_common_slot->size = image_heap_size - teams_heap_size;
+        init_common_slot->feb  = 0;
+        init_common_slot->next = NULL;
+        init_common_slot->prev = NULL;
+        init_common_slot->next_empty = NULL;
+        init_common_slot->prev_empty = NULL;
+     }
+
     shared_memory_slot_t * tmp_slot;
     tmp_slot = init_common_slot;
     while(tmp_slot->prev != NULL)
         tmp_slot = tmp_slot->prev;
     initial_team->symm_mem_slot.start_addr = tmp_slot->addr;
+    initial_team->symm_mem_slot.end_addr = init_common_slot->addr;
 
-    initial_team->symm_mem_slot.end_addr =
-        init_common_slot->addr + init_heap_size;
-
-    initial_team->allocated_list = NULL;
-
-    /*Init the child_common_slot*/
-    if (child_common_slot == NULL) {
-        child_common_slot       = (shared_memory_slot_t *)
-                                   malloc(sizeof(shared_memory_slot_t));
-        child_common_slot->addr = init_common_slot->addr+init_heap_size;
-        child_common_slot->size = init_common_slot->size - init_heap_size;
-        child_common_slot->feb  = 0;
-        child_common_slot->next = NULL;
-        child_common_slot->prev = NULL;
-     }
-    init_common_slot->size=init_heap_size;
     current_team =  initial_team;
 
-    init_mem_info = (mem_usage_info_t *) 
+    mem_info = (mem_usage_info_t *)
         coarray_allocatable_allocate_(sizeof(mem_usage_info_t), NULL, NULL);
-    /* update the init_mem_info*/
-    init_mem_info->current_heap_usage = sizeof(*init_mem_info);
-    init_mem_info->max_heap_usage = sizeof(*init_mem_info);
-    init_mem_info->reserved_heap_usage = init_heap_size;
-    /* intialize the child_mem_info*/
-    child_mem_info = (mem_usage_info_t *)
-        coarray_allocatable_allocate_(sizeof(mem_usage_info_t), NULL, NULL);
-	child_mem_info->current_heap_usage = 0;
-    child_mem_info->max_heap_usage = 0;
-    child_mem_info->reserved_heap_usage = child_common_slot->size;
+    /* update mem_info */
+    mem_info->current_heap_usage = teams_heap_size + sizeof(*mem_info);
+    mem_info->max_heap_usage = mem_info->current_heap_usage;
+    mem_info->reserved_heap_usage = image_heap_size;
 
- 
+    teams_mem_info = (mem_usage_info_t *)
+        coarray_allocatable_allocate_(sizeof(mem_usage_info_t), NULL, NULL);
+	teams_mem_info->current_heap_usage = 0;
+    teams_mem_info->max_heap_usage = 0;
+    teams_mem_info->reserved_heap_usage = teams_heap_size;
+
 
     /* allocate space for recording image termination */
     error_stopped_image_exists =
@@ -2877,20 +2910,57 @@ void comm_init()
         num_procs * sizeof(sync_flag_t), NULL, NULL);
     memset(sync_flags, 0, num_procs*sizeof(sync_flag_t));
 
-    /* allocate flags for synchronization via sync all */
-    bar_flags[0] = (sync_flag_t *) coarray_allocatable_allocate_(
-        num_procs * sizeof(sync_flag_t),NULL,  NULL);
-    memset(bar_flags[0], 0, num_procs*sizeof(sync_flag_t));
-    bar_flags[1] = (sync_flag_t *) coarray_allocatable_allocate_(
-        num_procs * sizeof(sync_flag_t),NULL,  NULL);
-    memset(bar_flags[1], 0, num_procs*sizeof(sync_flag_t));
+    /* Creating intranode barrier flags */
+    {
+        initial_team->intranode_barflags = malloc(initial_team->intranode_set[0] *
+                                        sizeof(*initial_team->intranode_barflags));
 
-    bar_senses = malloc(num_procs * sizeof *bar_senses);
-    memset(bar_senses, 0, num_procs * sizeof *bar_senses);
+        initial_team->intranode_barflags[0] =
+            (barrier_flags_t *)
+            coarray_allocatable_allocate_(sizeof(*initial_team-> intranode_barflags[0]),
+                                          NULL, NULL);
+        *(initial_team->intranode_barflags[0]) = 0;
+
+        initial_team->intranode_collflags = malloc(initial_team->intranode_set[0] *
+                                        sizeof(*initial_team->intranode_collflags));
+
+        initial_team->intranode_collflags[0] =
+            (barrier_flags_t *)
+            coarray_allocatable_allocate_(sizeof(*initial_team-> intranode_collflags[0]),
+                                          NULL, NULL);
+        *(initial_team->intranode_collflags[0]) = 0;
+
+        int num_nonleaders = initial_team->intranode_set[0] - 1;
+        memset(&initial_team->intranode_barflags[1], 0,
+                num_nonleaders * sizeof(*initial_team->intranode_barflags));
+        memset(&initial_team->intranode_collflags[1], 0,
+                num_nonleaders * sizeof(*initial_team->intranode_collflags));
+
+        long leader = initial_team->intranode_set[1];
+        int intranode_count = initial_team->intranode_set[0];
+        /* set intranode flags for synchronization */
+        if (my_proc == leader) {
+          int i;
+          for (i = 1; i < intranode_count; i++) {
+            int target = initial_team->intranode_set[i + 1];
+            initial_team->intranode_barflags[i] =
+              comm_get_sharedptr(initial_team->intranode_barflags[0],
+                  target);
+            initial_team->intranode_collflags[i] =
+              comm_get_sharedptr(initial_team->intranode_collflags[0],
+                  target);
+          }
+        } else {
+          int leader = initial_team->intranode_set[1];
+          initial_team->intranode_collflags[1] =
+            comm_get_sharedptr(initial_team->intranode_collflags[0],
+                leader);
+        }
+    }
 
     /* check whether to use 1-sided collectives implementation */
-    enable_collectives_1sided = get_env_flag(ENV_COLLECTIVES_1SIDED,
-                                    DEFAULT_ENABLE_COLLECTIVES_1SIDED);
+    enable_collectives_mpi = get_env_flag(ENV_COLLECTIVES_MPI,
+                                    DEFAULT_ENABLE_COLLECTIVES_MPI);
 
     /* check whether to enable use of canary protocol for some collectives */
     enable_collectives_use_canary = get_env_flag(ENV_COLLECTIVES_USE_CANARY,
@@ -2903,6 +2973,12 @@ void comm_init()
 
     enable_collectives_2level = get_env_flag(ENV_COLLECTIVES_2LEVEL,
                                              DEFAULT_ENABLE_COLLECTIVES_2LEVEL);
+
+    enable_reduction_2level = get_env_flag(ENV_REDUCTION_2LEVEL,
+                                             DEFAULT_ENABLE_REDUCTION_2LEVEL);
+
+    enable_broadcast_2level = get_env_flag(ENV_BROADCAST_2LEVEL,
+                                             DEFAULT_ENABLE_BROADCAST_2LEVEL);
 
     /* enable 1-sided collectives MPI isn't already initialized */
     mpi_collectives_available = mpi_initialized_by_gasnet;
@@ -4007,7 +4083,7 @@ void comm_sync_all(int * status, int stat_len, char * errmsg, int errmsg_len)
 
 	LOAD_STORE_FENCE();
 
-	if(current_team == NULL || current_team == initial_team ||
+	if (current_team == NULL || current_team == initial_team ||
        current_team->codimension_mapping == NULL) {
 	    if (stopped_image_exists != NULL && stopped_image_exists[num_procs]) {
             if (status != NULL) {
@@ -4183,7 +4259,6 @@ static void sync_all_2level_multiflag(int *status, int stat_len,
 
     leader = get_leader(team);
 
-#if GASNET_PSHM
     if (my_proc != leader) {
         barrier_flags_t *my_sync = team->intranode_barflags[0];
 
@@ -4306,7 +4381,6 @@ static void sync_all_2level_multiflag(int *status, int stat_len,
       *(team->intranode_barflags[1+i]) = 0;
     }
 
-#endif
 
 	LIBCAF_TRACE(LIBCAF_LOG_SYNC, "exit");
 }
@@ -4328,7 +4402,6 @@ static void sync_all_2level_sharedcounter(int *status, int stat_len,
 
     leader = get_leader(team);
 
-#if GASNET_PSHM
     if (my_proc != leader) {
         barrier_flags_t *my_sync = team->intranode_barflags[0];
         barrier_flags_t *leader_sync = team->intranode_barflags[1];
@@ -4451,8 +4524,6 @@ static void sync_all_2level_sharedcounter(int *status, int stat_len,
         barrier_flags_t *nonleader_sync = team->intranode_barflags[1+i];
         *nonleader_sync = 1;
     }
-
-#endif
 
 	LIBCAF_TRACE(LIBCAF_LOG_SYNC, "exit");
 }
@@ -4793,11 +4864,11 @@ static void sync_images_sense_rev(int *image_list,
 #endif
 
 		if (my_proc != q) {
-			short sense;
+			char sense;
 			sense = sync_senses[q] % 2 + 1;
 			sync_senses[q] = sense;
 			comm_nbi_write(q, &sync_flags[my_proc].value, &sense,
-					sizeof sense);
+                           sizeof sense);
 		}
 	}
 
@@ -4908,7 +4979,7 @@ static void sync_images_csr(int *image_list,
 			} else
 #endif
 			{
-				short sense;
+				char sense;
 				sense = sync_senses[q] % 2 + 1;
 				sync_senses[q] = sense;
 				comm_nbi_write(q, &sync_flags[my_proc].value, &sense,
@@ -5039,6 +5110,14 @@ void *comm_lcb_malloc(size_t size)
 		ptr = malloc(size);
 		gasnet_resume_interrupts();
 	}
+#if defined (CAFRT_DEBUG)
+    else if (ptr < comm_start_asymmetric_heap(my_proc) ||
+             ptr > comm_end_asymmetric_heap(my_proc)) {
+        LIBCAF_TRACE(LIBCAF_LOG_FATAL,
+                "bad ptr value (%p) returned!", ptr);
+    }
+#endif
+
 
 	LIBCAF_TRACE(LIBCAF_LOG_MEMORY, "exit");
 	return ptr;
@@ -5886,58 +5965,61 @@ void comm_write(size_t proc, void *dest, void *src,
  */
 void comm_nbi_write(size_t proc, void *dest, void *src, size_t nbytes)
 {
-	void *remote_dest;
-	const gasnet_nodeinfo_t *node_info = &nodeinfo_table[proc];
+    void *remote_dest;
+    const gasnet_nodeinfo_t *node_info = &nodeinfo_table[proc];
 
-	LIBCAF_TRACE(LIBCAF_LOG_COMM, "entry");
+    //comm_write_x(proc, dest, src, nbytes);
+    //return;
 
-	remote_dest = get_remote_address(dest, proc);
+    LIBCAF_TRACE(LIBCAF_LOG_COMM, "entry");
+
+    remote_dest = get_remote_address(dest, proc);
 
 #if GASNET_PSHM
 	if (shared_mem_rma_bypass &&
-			node_info->supernode == nodeinfo_table[my_proc].supernode) {
-		PROFILE_RMA_STORE_BEGIN(proc, nbytes);
-		ssize_t ofst = node_info->offset;
-		remote_dest = (void *) ((uintptr_t) remote_dest + ofst);
-		memcpy(remote_dest, src, nbytes);
-		PROFILE_RMA_STORE_END(proc);
+        node_info->supernode == nodeinfo_table[my_proc].supernode) {
+        PROFILE_RMA_STORE_BEGIN(proc, nbytes);
+        ssize_t ofst = node_info->offset;
+        remote_dest = (void *) ((uintptr_t) remote_dest + ofst);
+        memcpy(remote_dest, src, nbytes);
+        PROFILE_RMA_STORE_END(proc);
 	} else
 #endif
-	{
-		PROFILE_RMA_STORE_BEGIN(proc, nbytes);
-		gasnet_put_nbi(proc, remote_dest, src, nbytes);
-		PROFILE_RMA_STORE_END(proc);
-	}
+    {
+        PROFILE_RMA_STORE_BEGIN(proc, nbytes);
+        gasnet_put_nbi(proc, remote_dest, src, nbytes);
+        PROFILE_RMA_STORE_END(proc);
+    }
 
-	LIBCAF_TRACE(LIBCAF_LOG_COMM, "exit");
+    LIBCAF_TRACE(LIBCAF_LOG_COMM, "exit");
 }
 
 void comm_write_x(size_t proc, void *dest, void *src, size_t nbytes)
 {
-	void *remote_dest;
-	const gasnet_nodeinfo_t *node_info = &nodeinfo_table[proc];
+    void *remote_dest;
+    const gasnet_nodeinfo_t *node_info = &nodeinfo_table[proc];
 
-	LIBCAF_TRACE(LIBCAF_LOG_COMM, "entry");
+    LIBCAF_TRACE(LIBCAF_LOG_COMM, "entry");
 
-	remote_dest = get_remote_address(dest, proc);
+    remote_dest = get_remote_address(dest, proc);
 
 #if GASNET_PSHM
-	if (shared_mem_rma_bypass &&
-			node_info->supernode == nodeinfo_table[my_proc].supernode) {
-		PROFILE_RMA_STORE_BEGIN(proc, nbytes);
-		ssize_t ofst = node_info->offset;
-		remote_dest = (void *) ((uintptr_t) remote_dest + ofst);
-		memcpy(remote_dest, src, nbytes);
-		PROFILE_RMA_STORE_END(proc);
-	} else
+    if (shared_mem_rma_bypass &&
+            node_info->supernode == nodeinfo_table[my_proc].supernode) {
+        PROFILE_RMA_STORE_BEGIN(proc, nbytes);
+        ssize_t ofst = node_info->offset;
+        remote_dest = (void *) ((uintptr_t) remote_dest + ofst);
+        memcpy(remote_dest, src, nbytes);
+        PROFILE_RMA_STORE_END(proc);
+    } else
 #endif
-	{
-		PROFILE_RMA_STORE_BEGIN(proc, nbytes);
-		gasnet_put_bulk(proc, remote_dest, src, nbytes);
-		PROFILE_RMA_STORE_END(proc);
-	}
+    {
+        PROFILE_RMA_STORE_BEGIN(proc, nbytes);
+        gasnet_put_bulk(proc, remote_dest, src, nbytes);
+        PROFILE_RMA_STORE_END(proc);
+    }
 
-	LIBCAF_TRACE(LIBCAF_LOG_COMM, "exit");
+    LIBCAF_TRACE(LIBCAF_LOG_COMM, "exit");
 }
 
 

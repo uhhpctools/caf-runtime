@@ -43,6 +43,7 @@
 
 #define MAX_NUM_IMAGES                    0x100000
 #define MAX_SHARED_MEMORY_SIZE            0x1000000000
+#define MIN_HEAP_SIZE                     0x400000
 
 
 /* status codes for synchronization statements */
@@ -71,14 +72,14 @@ typedef enum {
   SYNC_PING_PONG = 1,
   SYNC_SENSE_REV = 2,
   SYNC_CSR = 3,
-  SYNC_IMAGES_DEFAULT = 2
+  SYNC_IMAGES_DEFAULT = 3
 } sync_images_t;
 
 typedef enum {
   BAR_DISSEM = 0,
   BAR_2LEVEL_MULTIFLAG = 1,
   BAR_2LEVEL_SHAREDCOUNTER = 2,
-  TEAM_BAR_DEFAULT = 0
+  TEAM_BAR_DEFAULT = 1
 } team_barrier_t;
 
 /* different types of rma ordering strategies */

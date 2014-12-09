@@ -50,305 +50,126 @@
 #endif
 
 
-co_reduce_t co_reduce_algorithm;
-
-/* initialized in comm_init() */
-extern unsigned long _this_image;
-extern unsigned long _num_images;
-
+/* global variables */
 void *collectives_buffer;
 size_t collectives_bufsize;
 
 int collectives_max_workbufs = 0;
 
-int enable_collectives_1sided;
+int enable_collectives_mpi;
 int enable_collectives_use_canary = 0;
 
 int enable_collectives_2level = 0;
+int enable_reduction_2level = 0;
+int enable_broadcast_2level = 0;
 int mpi_collectives_available = 0;
 
+
+/* initialized in comm_init() */
+extern unsigned long _this_image;
+extern unsigned long _num_images;
+
+/* from team.c */
 extern team_type current_team;
 
-static int get_proc_id(team_type team, int image_id);
+/* these are defined in libcaf-extra/reduce.caf */
 
+extern void sum_reduce_int1__(void *, void *, int);
+extern void sum_reduce_int2__(void *, void *, int);
+extern void sum_reduce_int4__(void *, void *, int);
+extern void sum_reduce_int8__(void *, void *, int);
+extern void sum_reduce_real4__(void *, void *, int);
+extern void sum_reduce_real8__(void *, void *, int);
+extern void sum_reduce_complex4__(void *, void *, int);
+extern void sum_reduce_complex8__(void *, void *, int);
 
-#define WORD_SIZE 4
+extern void max_reduce_int1__(void *, void *, int);
+extern void max_reduce_int2__(void *, void *, int);
+extern void max_reduce_int4__(void *, void *, int);
+extern void max_reduce_int8__(void *, void *, int);
+extern void max_reduce_real4__(void *, void *, int);
+extern void max_reduce_real8__(void *, void *, int);
+extern void max_reduce_char__(void *, void *, int, int, int);
 
+extern void min_reduce_int1__(void *, void *, int);
+extern void min_reduce_int2__(void *, void *, int);
+extern void min_reduce_int4__(void *, void *, int);
+extern void min_reduce_int8__(void *, void *, int);
+extern void min_reduce_real4__(void *, void *, int);
+extern void min_reduce_real8__(void *, void *, int);
+extern void min_reduce_char__(void *, void *, int, int, int);
 
-/* CO_BCAST */
+extern void prod_reduce_int1__(void *, void *, int);
+extern void prod_reduce_int2__(void *, void *, int);
+extern void prod_reduce_int4__(void *, void *, int);
+extern void prod_reduce_int8__(void *, void *, int);
+extern void prod_reduce_real4__(void *, void *, int);
+extern void prod_reduce_real8__(void *, void *, int);
+extern void prod_reduce_complex4__(void *, void *, int);
+extern void prod_reduce_complex8__(void *, void *, int);
 
-void _CO_BCAST_I1(DopeVectorType * source, INTEGER1 * src_img_p)
-{
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
-    PROFILE_FUNC_ENTRY(CAFPROF_BCAST);
-    INTEGER8 s_image = *src_img_p;
-    INTEGER8 *s_image_p = &s_image;
-    _CO_BCAST_I8(source, s_image_p);
-    PROFILE_FUNC_EXIT(CAFPROF_BCAST);
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
-}
+/* defined in libfortran runtime */
+extern int _IS_CONTIGUOUS(DopeVectorType *source);
+extern INT8 _SIZEOF_8(DopeVectorType *source);
 
-void _CO_BCAST_I2(DopeVectorType * source, INTEGER2 * src_img_p)
-{
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
-    PROFILE_FUNC_ENTRY(CAFPROF_BCAST);
-    INTEGER8 s_image = *src_img_p;
-    INTEGER8 *s_image_p = &s_image;
-    _CO_BCAST_I8(source, s_image_p);
-    PROFILE_FUNC_EXIT(CAFPROF_BCAST);
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
-}
+/* local forward declarations */
+static int inline get_proc_id(team_type team, int image_id);
+static size_t inline get_reduction_type_size(caf_reduction_type_t type,
+                           int charlen);
+static void inline perform_reduce(caf_reduction_op_t op, caf_reduction_type_t type,
+                           void *res, void *b, int s, int charlen);
+static void perform_udr(void *opr, char *res, char *b, int s, int elem_size,
+                        int charlen, int type);
 
-void _CO_BCAST_I4(DopeVectorType * source, INTEGER4 * src_img_p)
-{
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
-    PROFILE_FUNC_ENTRY(CAFPROF_BCAST);
-    INTEGER8 s_image = *src_img_p;
-    INTEGER8 *s_image_p = &s_image;
-    _CO_BCAST_I8(source, s_image_p);
-    PROFILE_FUNC_EXIT(CAFPROF_BCAST);
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
-}
+#ifdef MPI_AVAIL
+static void inline do_mpi_reduce(void *source, int size, MPI_Datatype dtype, MPI_Op op,
+                   int root);
+static void do_mpi_char_reduce(void *source, int size, caf_reduction_type_t dtype,
+                        caf_reduction_op_t op, int root, int charlen);
+static void do_mpi_char_allreduce(void *source, int size, caf_reduction_type_t dtype,
+                        caf_reduction_op_t op, int charlen);
+#endif
 
-/* currently using a naive linear broadcast algorithm */
-void _CO_BCAST_I8(DopeVectorType * source, INTEGER8 * src_img_p)
-{
-    void *dest, *src;
-    size_t dest_strides[7], src_strides[7], count[8];
-    int stride_levels;
-    long int n_dim = source->n_dim;
-    long int elem_size;
-    INTEGER8 source_image = *src_img_p;
+static void co_reduce_predef_to_image_2level__(void *source, int *result_image,
+                               int *size, int *charlen,
+                               caf_reduction_type_t *elem_type,
+                               caf_reduction_op_t *op);
 
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
-    PROFILE_FUNC_ENTRY(CAFPROF_BCAST);
+static void co_reduce_predef_to_all_2level__(void *source, int *size, int *charlen,
+                               caf_reduction_type_t *elem_type,
+                               caf_reduction_op_t *op);
 
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE,
-                 "source = %p, *src_img_p = %lu", source, *src_img_p);
+static void co_broadcast_from_root_2level(void *source, size_t sz, int source_image);
 
-    if (source->type_lens.type == DVTYPE_ASCII) {
-        elem_size = source->base_addr.charptr.byte_len;
-    } else {
-        elem_size = source->base_addr.a.el_len >> 3;
-    }
+static void co_reduce_to_image__(void *source, int *result_image, int *size,
+                          int *elem_size_p, int *charlen, int type,
+                          void *opr);
+static void co_reduce_to_image_2level__(void *source, int *result_image, int *size,
+                          int *elem_size_p, int *charlen, int type,
+                          void *opr);
+static void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
+                        int *charlen, int type, void *opr);
+static void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
+                               int *charlen, int type, void *opr);
 
-    if (_this_image == source_image) {
-        int i;
-        int k = 0;
-        /* is source */
-        dest = src = source->base_addr.a.ptr;
-
-        /* check if first dimension is strided */
-        if (n_dim > 0) {
-            int first_stride = 1;
-            if (source->type_lens.type == DVTYPE_ASCII ||
-                source->type_lens.type == DVTYPE_DERIVEDBYTE) {
-                /* first dim is strided if the first stride multipler /
-                 * elem_size is greater than 1 */
-                first_stride =
-                    source->dimension[0].stride_mult / elem_size;
-            } else if (elem_size > WORD_SIZE) {
-                first_stride = source->dimension[0].stride_mult /
-                    (elem_size / WORD_SIZE);
-            } else {
-                first_stride = source->dimension[0].stride_mult;
-            }
-
-            if (first_stride > 1) {
-                k = 1;
-                count[0] = elem_size;
-                count[1] = source->dimension[0].extent;
-                src_strides[0] = elem_size * first_stride;
-                dest_strides[0] = elem_size * first_stride;
-            } else {
-                k = 0;
-                count[0] = elem_size * source->dimension[0].extent;
-            }
-        } else {
-            count[0] = elem_size;
-        }
-
-        stride_levels = n_dim - 1 + k;
-        for (i = 0; i < stride_levels; i++) {
-            count[i + 1 + k] = source->dimension[i + 1].extent;
-            src_strides[i + k] = elem_size*source->dimension[i + k].stride_mult;
-            dest_strides[i + k] = elem_size*source->dimension[i + k].stride_mult;
-        }
-        comm_barrier_all();
-        for (i = 1; i <= _num_images; i++) {
-            if (_this_image != i) {
-                /* non-blocking would make sense here */
-                if (stride_levels > 0) {
-                    __coarray_strided_write(i, dest, dest_strides,
-                                            src, src_strides, count,
-                                            stride_levels, 0, NULL);
-                } else {
-                    __coarray_write(i, dest, src, count[0], 0, NULL);
-                }
-
-            }
-        }
-    } else {
-        /* is destination */
-
-        if (source_image < 1 || source_image > _num_images) {
-            LIBCAF_TRACE(LIBCAF_LOG_FATAL,
-                         "CO_BCAST called with invalid source_image.");
-        }
-
-        comm_barrier_all();
-    }
-    comm_barrier_all();
-
-    PROFILE_FUNC_EXIT(CAFPROF_BCAST);
-    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
-}
-
-
-#define USE_CAF_IMPLEMENTATION
-
-#define CAF_CO_(op, alg, type, ndim) \
-    switch (ndim) { \
-        case 0: co_##op##_##alg##_##type##_##0__(source,result);break;\
-        case 1: co_##op##_##alg##_##type##_##1__(source,result);break;\
-        case 2: co_##op##_##alg##_##type##_##2__(source,result);break;\
-        case 3: co_##op##_##alg##_##type##_##3__(source,result);break;\
-        case 4: co_##op##_##alg##_##type##_##4__(source,result);break;\
-        case 5: co_##op##_##alg##_##type##_##5__(source,result);break;\
-        case 6: co_##op##_##alg##_##type##_##6__(source,result);break;\
-        case 7: co_##op##_##alg##_##type##_##7__(source,result);break;\
-        default: Error("rank > 7 not supported");\
-    }
-
-#define _CO_REDUCE(OP, TYPE, op, type) \
-    void _CO_##OP##_##TYPE##_0(DopeVectorType *source, \
-                               DopeVectorType *result) \
-    { \
-        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry"); \
-        PROFILE_FUNC_ENTRY(CAFPROF_REDUCE); \
-        switch (co_reduce_algorithm) { \
-            case CO_REDUCE_ALL2ALL: \
-                co_##op##_all2all_##type##_0__(source, result); \
-                break; \
-            case CO_REDUCE_2TREE_SYNCALL: \
-                co_##op##_2tree_syncall_##type##_0__(source, result); \
-                break; \
-            case CO_REDUCE_2TREE_SYNCIMAGES: \
-                co_##op##_2tree_syncimages_##type##_0__(source, result); \
-                break; \
-            case CO_REDUCE_2TREE_EVENTS: \
-                co_##op##_2tree_events_##type##_0__(source, result); \
-                break; \
-        } \
-        PROFILE_FUNC_EXIT(CAFPROF_REDUCE); \
-        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");\
-    } \
-    void _CO_##OP##_##TYPE (DopeVectorType *source, \
-                            DopeVectorType *result) \
-    { \
-        int n_dim = source->n_dim; \
-        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry"); \
-        PROFILE_FUNC_ENTRY(CAFPROF_REDUCE); \
-        switch (co_reduce_algorithm) { \
-            case CO_REDUCE_ALL2ALL: \
-                CAF_CO_(op, all2all, type, n_dim) \
-                break; \
-            case CO_REDUCE_2TREE_SYNCALL: \
-                CAF_CO_(op, 2tree_syncall, type, n_dim) \
-                break; \
-            case CO_REDUCE_2TREE_SYNCIMAGES: \
-                CAF_CO_(op, 2tree_syncimages, type, n_dim) \
-                break; \
-            case CO_REDUCE_2TREE_EVENTS: \
-                CAF_CO_(op, 2tree_events, type, n_dim) \
-                break; \
-        } \
-        PROFILE_FUNC_EXIT(CAFPROF_REDUCE); \
-        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");\
-    }
-
-
-_CO_REDUCE(MAXVAL, INT1,    maxval, int1)
-_CO_REDUCE(MAXVAL, INT2,    maxval, int2)
-_CO_REDUCE(MAXVAL, INT4,    maxval, int4)
-_CO_REDUCE(MAXVAL, INT8,    maxval, int8)
-_CO_REDUCE(MAXVAL, REAL4,   maxval, real4)
-_CO_REDUCE(MAXVAL, REAL8,   maxval, real8)
-//_CO_REDUCE(MAXVAL, REAL16,  maxval, real16)
-//_CO_REDUCE(MAXVAL, C4,      maxval, c4)
-//_CO_REDUCE(MAXVAL, C8,      maxval, c8)
-//_CO_REDUCE(MAXVAL, C16,     maxval, c16)
-
-_CO_REDUCE(MINVAL, INT1,    minval, int1)
-_CO_REDUCE(MINVAL, INT2,    minval, int2)
-_CO_REDUCE(MINVAL, INT4,    minval, int4)
-_CO_REDUCE(MINVAL, INT8,    minval, int8)
-_CO_REDUCE(MINVAL, REAL4,   minval, real4)
-_CO_REDUCE(MINVAL, REAL8,   minval, real8)
-//_CO_REDUCE(MINVAL, REAL16,  minval, real16)
-//_CO_REDUCE(MINVAL, C4,      minval, c4)
-//_CO_REDUCE(MINVAL, C8,      minval, c8)
-//_CO_REDUCE(MINVAL, C16,     minval, c16)
-
-_CO_REDUCE(SUM, INT1,    sum, int1)
-_CO_REDUCE(SUM, INT2,    sum, int2)
-_CO_REDUCE(SUM, INT4,    sum, int4)
-_CO_REDUCE(SUM, INT8,    sum, int8)
-_CO_REDUCE(SUM, REAL4,   sum, real4)
-_CO_REDUCE(SUM, REAL8,   sum, real8)
-//_CO_REDUCE(SUM, REAL16,  sum, real16)
-_CO_REDUCE(SUM, C4,      sum, c4)
-_CO_REDUCE(SUM, C8,      sum, c8)
-//_CO_REDUCE(SUM, C16,     sum, c16)
-
-_CO_REDUCE(PRODUCT, INT1,    product, int1)
-_CO_REDUCE(PRODUCT, INT2,    product, int2)
-_CO_REDUCE(PRODUCT, INT4,    product, int4)
-_CO_REDUCE(PRODUCT, INT8,    product, int8)
-_CO_REDUCE(PRODUCT, REAL4,   product, real4)
-_CO_REDUCE(PRODUCT, REAL8,   product, real8)
-//_CO_REDUCE(PRODUCT, REAL16,  product, real16)
-_CO_REDUCE(PRODUCT, C4,      product, c4)
-_CO_REDUCE(PRODUCT, C8,      product, c8)
-//_CO_REDUCE(PRODUCT, C16,     product, c16)
 
 
 #define MIN(x,y) ( (x<y) ? (x) : (y) )
-
-void sum_reduce_int1__(void *, void *, int);
-void sum_reduce_int2__(void *, void *, int);
-void sum_reduce_int4__(void *, void *, int);
-void sum_reduce_int8__(void *, void *, int);
-void sum_reduce_real4__(void *, void *, int);
-void sum_reduce_real8__(void *, void *, int);
-void sum_reduce_complex4__(void *, void *, int);
-void sum_reduce_complex8__(void *, void *, int);
-
-void max_reduce_int1__(void *, void *, int);
-void max_reduce_int2__(void *, void *, int);
-void max_reduce_int4__(void *, void *, int);
-void max_reduce_int8__(void *, void *, int);
-void max_reduce_real4__(void *, void *, int);
-void max_reduce_real8__(void *, void *, int);
-void max_reduce_char__(void *, void *, int, int, int);
+#define MAX(x,y) ( (x>y) ? (x) : (y) )
 
 
-void min_reduce_int1__(void *, void *, int);
-void min_reduce_int2__(void *, void *, int);
-void min_reduce_int4__(void *, void *, int);
-void min_reduce_int8__(void *, void *, int);
-void min_reduce_real4__(void *, void *, int);
-void min_reduce_real8__(void *, void *, int);
-void min_reduce_char__(void *, void *, int, int, int);
 
-void prod_reduce_int1__(void *, void *, int);
-void prod_reduce_int2__(void *, void *, int);
-void prod_reduce_int4__(void *, void *, int);
-void prod_reduce_int8__(void *, void *, int);
-void prod_reduce_real4__(void *, void *, int);
-void prod_reduce_real8__(void *, void *, int);
-void prod_reduce_complex4__(void *, void *, int);
-void prod_reduce_complex8__(void *, void *, int);
+/* translating from image id in 'team' to proc ID */
+static int inline get_proc_id(team_type team, int image_id)
+{
+    int proc_id = image_id-1;
+
+    if (team!= NULL || team->codimension_mapping != NULL) {
+            proc_id = team->codimension_mapping[image_id-1];
+    }
+
+    return proc_id;
+}
 
 static size_t inline get_reduction_type_size(caf_reduction_type_t type, int charlen)
 {
@@ -635,7 +456,7 @@ static void perform_udr(void *opr, char *res, char *b, int s, int elem_size,
 
 #ifdef MPI_AVAIL
 
-void do_mpi_reduce(void *source, int size, MPI_Datatype dtype, MPI_Op op,
+static void inline do_mpi_reduce(void *source, int size, MPI_Datatype dtype, MPI_Op op,
                    int root)
 {
     if (_this_image == root+1) {
@@ -647,7 +468,7 @@ void do_mpi_reduce(void *source, int size, MPI_Datatype dtype, MPI_Op op,
     }
 }
 
-void do_mpi_char_reduce(void *source, int size, caf_reduction_type_t dtype,
+static void do_mpi_char_reduce(void *source, int size, caf_reduction_type_t dtype,
                         caf_reduction_op_t op, int root, int charlen)
 {
     int i;
@@ -705,7 +526,7 @@ void do_mpi_char_reduce(void *source, int size, caf_reduction_type_t dtype,
     free(work);
 }
 
-void do_mpi_char_allreduce(void *source, int size, caf_reduction_type_t dtype,
+static void do_mpi_char_allreduce(void *source, int size, caf_reduction_type_t dtype,
                         caf_reduction_op_t op, int charlen)
 {
     int i;
@@ -792,7 +613,8 @@ void do_mpi_char_allreduce(void *source, int size, caf_reduction_type_t dtype,
 
 void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
                                  int *charlen, caf_reduction_type_t *elem_type,
-                                 caf_reduction_op_t *op)
+                                 caf_reduction_op_t *op, INTEGER4 *stat,
+                                 char *errmsg, int errmsg_len)
 {
     int k;
     int p, q, r, me, partner, proc_id;
@@ -819,7 +641,7 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
     sz = *size;
 
 #ifdef MPI_AVAIL
-    if (!mpi_collectives_available && !enable_collectives_1sided) {
+    if (!mpi_collectives_available && enable_collectives_mpi) {
         /* check if MPI was initialized */
         if (MPI_Initialized &&
             MPI_Initialized(&mpi_collectives_available) != MPI_SUCCESS) {
@@ -827,7 +649,7 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
         }
     }
 
-    if (mpi_collectives_available && !enable_collectives_1sided &&
+    if (mpi_collectives_available && enable_collectives_mpi &&
         (current_team == NULL || current_team->depth == 0)) {
         switch (*elem_type) {
             case CAF_LOGICAL1:
@@ -904,6 +726,18 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
         /* does not reach */
     }
 #endif
+
+    if ((enable_collectives_2level || enable_reduction_2level) &&
+        current_team && (current_team->leaders_count > 1  &&
+          current_team->leaders_count < _num_images)) {
+        co_reduce_predef_to_image_2level__(source, result_image, size, charlen,
+                                           elem_type, op);
+        PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+        return;
+
+        /* does not reach */
+    }
 
     me = _this_image;
     p = _num_images;
@@ -1017,9 +851,9 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
             k2 = j*(sz+1);
 
             if (me > partner) {
-	        proc_id = get_proc_id(current_team, partner);
+                proc_id = get_proc_id(current_team, partner);
 
-	        if (enable_collectives_use_canary) {
+                if (0 /*enable_collectives_use_canary*/) {
 
                 comm_nbi_write( proc_id,
                                 &((char*)work_buffers)[(k1-1)*elem_size],
@@ -1054,6 +888,9 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
         }
     }
 
+    /* TODO: can be a bit more clever here and avoid this extra copy, by
+     * temporarily treating the result image as the "leader" this reduction.
+     * */
     if (me == *result_image) {
         ((char*)base_buffer)[sz*elem_size] = 0;
         if (me != 1) {
@@ -1105,13 +942,356 @@ void co_reduce_predef_to_image__( void *source, int *result_image, int *size,
 }
 
 
-void co_reduce_predef_to_all_2level__( void *source, int *size, int *charlen,
+static void co_reduce_predef_to_image_2level__(void *source, int *result_image,
+                               int *size, int *charlen,
                                caf_reduction_type_t *elem_type,
-                               caf_reduction_op_t *op);
+                               caf_reduction_op_t *op)
+{
+    int k;
+    int p, pp, q, qq, r, me, partner, proc_id;
+    int i, j, step, log2_q, log2_qq, val;
+    int k1, k2;
+    int num_bufs;
+    int *partners, *pot_partners;
+    size_t elem_size;
+    int sz;
+    void *base_buffer;
+    void *work_buffers;
+    int base_buffer_alloc = 0;
+    int work_buffers_alloc = 0;
+    int do_mpi;
+    int ierr;
+
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
+    PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
+
+    sz = *size;
+
+    const int my_proc = current_team->codimension_mapping[_this_image - 1];
+    const int is_leader = (current_team->intranode_set[1] == my_proc);
+    const long int *leader_set = current_team->leader_set;
+    const int leaders_count = current_team->leaders_count;
+    const int intranode_count = current_team->intranode_set[0];
+
+    /* find leader index into leaders_set */
+    int leader_index = -1;
+    if (is_leader) {
+        int i;
+        for (i = 0; i < leaders_count; i++) {
+            if (leader_set[i] == my_proc) {
+                leader_index = i;
+                break;
+            }
+        }
+    }
+
+    /* find intranode index into intranode_set */
+    int intranode_index = -1;
+    {
+        int i;
+        for (i = 1; i <= intranode_count; i++) {
+            if (current_team->intranode_set[i] == my_proc) {
+                intranode_index = i;
+                break;
+            }
+        }
+    }
+
+    /* compute image indices for other images on same node */
+    int *local_images;
+    if (is_leader) {
+        local_images = malloc((intranode_count-1) * sizeof(*local_images));
+        int i;
+        for (i = 0; i < intranode_count-1; i++) {
+            /* non-leaders start at intranode_set[2] ... */
+            local_images[i] = current_team->intranode_set[i+2]+1;
+        }
+    }
+
+    me = leader_index+1;
+    p = leaders_count;
+    pp = intranode_count;
+
+    /* find log2_qq, ceil( log2(pp) ) */
+    qq = 1;
+    log2_qq = 0;
+    while ( (2*qq) <= pp) {
+        qq = 2*qq;
+        log2_qq = log2_qq + 1;
+    }
+    if (qq < pp)
+        log2_qq = log2_qq + 1;
+
+    /* find log2_q, ceil( log2(p) ) */
+    q = 1;
+    log2_q = 0;
+    while ( (2*q) <= p) {
+        q = 2*q;
+        log2_q = log2_q + 1;
+    }
+    if (q < p)
+        log2_q = log2_q + 1;
+
+    elem_size = get_reduction_type_size(*elem_type, *charlen);
+
+    k = (sz+1)*elem_size;
+    if (collectives_bufsize < k) {
+        /* not enough room in collectives buffer for the base or work
+         * buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail((num_bufs+1)*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = coarray_allocatable_allocate_(
+                (num_bufs+1)*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers = &((char*)base_buffer)[(sz+1)*elem_size];
+        base_buffer_alloc = 1;
+    } else if (collectives_bufsize < 2*k) {
+        /* not enough room in collectives buffer for the work buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail(num_bufs*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = collectives_buffer;
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        work_buffers = coarray_allocatable_allocate_(
+                num_bufs*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers_alloc = 1;
+    } else {
+        /* collectives buffer is large enough to accomodate at least one work
+         * buffer, so use that */
+        base_buffer = collectives_buffer;
+        work_buffers = &((char*)collectives_buffer)[(sz+1)*elem_size];
+        num_bufs = ((int)collectives_bufsize-k)/k;
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+    }
+
+    pot_partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+    partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+
+    memcpy(base_buffer, source, sz*elem_size);
+    ((char *)base_buffer)[sz*elem_size] = 1;
+
+
+    /* Phase 1: Reduce to Leader */
+
+    me = intranode_index;
+    step = 1;
+    for (i = 1; i <= log2_qq; i += num_bufs) {
+        k = 0;
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            k2 = j*(sz+1);
+            ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+            if (((me-1)%(2*step)) < step) {
+                pot_partners[j-1] = me+step;
+                if ((me+step) <= pp) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me+step]+1;
+                }
+            } else {
+                pot_partners[j-1] = me-step;
+                if ((me-step) >= 1) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me-step]+1;
+                }
+            }
+            step = step * 2;
+        }
+
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            if (j == 1 && k > 0) {
+                comm_sync_images(partners, k, NULL, 0, NULL, 0);
+            }
+            partner = pot_partners[j-1];
+            if (partner < 1 || partner > pp) continue;
+
+            k1 = (j-1)*(sz+1)+1;
+            k2 = j*(sz+1);
+
+            if (me > partner) {
+                proc_id = current_team->intranode_set[partner];
+
+                comm_write_x( proc_id,
+                              &((char*)work_buffers)[(k1-1)*elem_size],
+                              &((char*)base_buffer)[0],
+                              sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+            } else {
+
+                /* poll on flag */
+                comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                /* reduce:
+                 *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                 */
+
+                perform_reduce(*op, *elem_type, base_buffer,
+                               &((char*)work_buffers)[(k1-1)*elem_size],
+                               sz, *charlen);
+            }
+        }
+    }
+
+    /* Phase 2: Leaders reduce to the first leader */
+
+    if (is_leader) {
+        me = leader_index+1;
+
+        step = 1;
+        for (i = 1; i <= log2_q; i += num_bufs) {
+            k = 0;
+            for (j = 1; j <= MIN(num_bufs,log2_q-i+1); j++) {
+                k2 = j*(sz+1);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+                if (((me-1)%(2*step)) < step) {
+                    pot_partners[j-1] = me+step;
+                    if ((me+step) <= p) {
+                        k = k + 1;
+                        partners[k-1] = leader_set[me+step-1] + 1;
+                    }
+                } else {
+                    pot_partners[j-1] = me-step;
+                    if ((me-step) >= 1) {
+                        k = k + 1;
+                        partners[k-1] = leader_set[me-step-1] + 1;
+                    }
+                }
+                step = step * 2;
+            }
+
+            for (j = 1; j <= MIN(num_bufs,log2_q-i+1); j++) {
+                if (j == 1 && k > 0) {
+                    comm_sync_images(partners, k, NULL, 0, NULL, 0);
+                }
+                partner = pot_partners[j-1];
+                if (partner < 1 || partner > p) continue;
+
+                k1 = (j-1)*(sz+1)+1;
+                k2 = j*(sz+1);
+
+                if (me > partner) {
+                    proc_id = leader_set[partner-1];
+
+                    if (enable_collectives_use_canary) {
+
+                    comm_nbi_write( proc_id,
+                                    &((char*)work_buffers)[(k1-1)*elem_size],
+                                    &((char*)base_buffer)[0],
+                                    sz*elem_size+1 );
+                    } else {
+
+                    comm_write_x( proc_id,
+                                  &((char*)work_buffers)[(k1-1)*elem_size],
+                                  &((char*)base_buffer)[0],
+                                  sz*elem_size );
+
+                    comm_nbi_write( proc_id,
+                                    &((char*)work_buffers)[(k2-1)*elem_size],
+                                    &((char*)base_buffer)[sz*elem_size],
+                                    1 );
+                    }
+
+                } else {
+
+                    /* poll on flag */
+                    comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+
+                    /* reduce:
+                     *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                     */
+
+                    perform_reduce(*op, *elem_type, base_buffer,
+                                   &((char*)work_buffers)[(k1-1)*elem_size],
+                                   sz, *charlen);
+                }
+            }
+        }
+    }
+
+    /* TODO: can be a bit more clever here and avoid this extra copy, by
+     * temporarily treating the result image as the leader of its
+     * node for this reduction. */
+    if (me == *result_image) {
+        ((char*)base_buffer)[sz*elem_size] = 0;
+        if (me != 1) {
+            int root = 1;
+            _SYNC_IMAGES(&root, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)base_buffer)[sz*elem_size]);
+        }
+        memcpy(source, base_buffer, sz*elem_size);
+    } else if (me == 1) {
+        _SYNC_IMAGES(result_image, 1, NULL, 0, NULL, 0);
+        proc_id = get_proc_id(current_team, *result_image);
+
+        comm_write_x( proc_id,
+                &((char*)base_buffer)[0],
+                &((char*)base_buffer)[0],
+                sz*elem_size );
+
+        comm_nbi_write( proc_id,
+                &((char*)base_buffer)[sz*elem_size],
+                &((char*)base_buffer)[sz*elem_size],
+                1 );
+    }
+
+    free(partners);
+    free(pot_partners);
+
+    if (is_leader) {
+      free(local_images);
+    }
+
+    if (base_buffer_alloc) {
+        coarray_deallocate_(base_buffer, NULL);
+    } else if (work_buffers_alloc) {
+        coarray_deallocate_(work_buffers, NULL);
+    }
+
+    PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+}
+
 
 void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
                                caf_reduction_type_t *elem_type,
-                               caf_reduction_op_t *op)
+                               caf_reduction_op_t *op, INTEGER4 *stat,
+                               char *errmsg, int errmsg_len)
 {
     int k;
     int p, q, r, me, partner, proc_id;
@@ -1138,7 +1318,7 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
     sz = *size;
 
 #ifdef MPI_AVAIL
-    if (!mpi_collectives_available && !enable_collectives_1sided) {
+    if (!mpi_collectives_available && enable_collectives_mpi) {
         /* check if MPI was initialized */
         if (MPI_Initialized &&
             MPI_Initialized(&mpi_collectives_available) != MPI_SUCCESS) {
@@ -1146,7 +1326,7 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
         }
     }
 
-    if (mpi_collectives_available && !enable_collectives_1sided &&
+    if (mpi_collectives_available && enable_collectives_mpi &&
         (current_team == NULL || current_team->depth == 0)) {
         switch (*elem_type) {
             case CAF_LOGICAL1:
@@ -1221,9 +1401,9 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
     }
 #endif
 
-    if (enable_collectives_2level && current_team &&
-        (current_team->leaders_count > 1  &&
-         current_team->leaders_count < _num_images) ) {
+    if ((enable_collectives_2level || enable_reduction_2level) &&
+        current_team && (current_team->leaders_count > 1  &&
+          current_team->leaders_count < _num_images)) {
         co_reduce_predef_to_all_2level__(source, size, charlen, elem_type, op);
         PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
         LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
@@ -1317,7 +1497,7 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
         _SYNC_IMAGES (&partner, 1, NULL, 0, NULL, 0);
 
 
-        if (enable_collectives_use_canary) {
+        if (0 /*enable_collectives_use_canary*/) {
 
             comm_nbi_write( proc_id,
                             &((char*)work_buffers)[0],
@@ -1382,7 +1562,7 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
                 partner = partners[j-1];
                 proc_id = get_proc_id(current_team, partner);
 
-                if (enable_collectives_use_canary) {
+                if (0 /*enable_collectives_use_canary*/) {
 
                 comm_nbi_write( proc_id,
                                 &((char*)work_buffers)[(k1-1)*elem_size],
@@ -1426,7 +1606,7 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
 
         _SYNC_IMAGES (&partner, 1, NULL, 0, NULL, 0);
 
-        if (enable_collectives_use_canary) {
+        if (0 /*enable_collectives_use_canary*/) {
 
             comm_nbi_write( proc_id,
                             &((char*)base_buffer)[0],
@@ -1470,7 +1650,11 @@ void co_reduce_predef_to_all__( void *source, int *size, int *charlen,
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
-void co_reduce_predef_to_all_2level__( void *source, int *size, int *charlen,
+#if 0
+
+/* old version -- keeping it around for now */
+
+static void co_reduce_predef_to_all_2level__(void *source, int *size, int *charlen,
                                caf_reduction_type_t *elem_type,
                                caf_reduction_op_t *op)
 {
@@ -1813,12 +1997,451 @@ void co_reduce_predef_to_all_2level__( void *source, int *size, int *charlen,
     PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
+#else
 
-int _IS_CONTIGUOUS(DopeVectorType *source);
+static void co_reduce_predef_to_all_2level__(void *source, int *size, int *charlen,
+                               caf_reduction_type_t *elem_type,
+                               caf_reduction_op_t *op)
+{
+    int k;
+    int p, pp, q, qq, r, me, partner, proc_id;
+    int i, j, step, log2_q, log2_qq, val;
+    int k1, k2;
+    int num_bufs;
+    int *partners, *pot_partners;
+    size_t elem_size;
+    int sz;
+    void *base_buffer;
+    void *work_buffers;
+    int base_buffer_alloc = 0;
+    int work_buffers_alloc = 0;
+    int do_mpi;
+    int ierr;
 
-INT8 _SIZEOF_8(DopeVectorType *source);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
+    PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
 
-void co_broadcast_from_root_2level(void *source, size_t sz, int source_image);
+    sz = *size;
+
+    const int my_proc = current_team->codimension_mapping[_this_image - 1];
+    const int is_leader = (current_team->intranode_set[1] == my_proc);
+    const long int *leader_set = current_team->leader_set;
+    const int leaders_count = current_team->leaders_count;
+    const int intranode_count = current_team->intranode_set[0];
+
+    /* find leader index into leaders_set */
+    int leader_index = -1;
+    if (is_leader) {
+        int i;
+        for (i = 0; i < leaders_count; i++) {
+            if (leader_set[i] == my_proc) {
+                leader_index = i;
+                break;
+            }
+        }
+    }
+
+    /* find intranode index into intranode_set */
+    int intranode_index = -1;
+    {
+        int i;
+        for (i = 1; i <= intranode_count; i++) {
+            if (current_team->intranode_set[i] == my_proc) {
+                intranode_index = i;
+                break;
+            }
+        }
+    }
+
+    /* compute image indices for other images on same node */
+    int *local_images;
+    if (is_leader) {
+        local_images = malloc((intranode_count-1) * sizeof(*local_images));
+        int i;
+        for (i = 0; i < intranode_count-1; i++) {
+            /* non-leaders start at intranode_set[2] ... */
+            local_images[i] = current_team->intranode_set[i+2]+1;
+        }
+    }
+
+    me = leader_index+1;
+    p = leaders_count;
+    pp = intranode_count;
+
+    /* find log2_qq, ceil( log2(pp) ) */
+    qq = 1;
+    log2_qq = 0;
+    while ( (2*qq) <= pp) {
+        qq = 2*qq;
+        log2_qq = log2_qq + 1;
+    }
+    if (qq < pp) {
+        log2_qq = log2_qq + 1;
+    }
+
+    /* find greatest power of 2, q, less than p */
+    q = 1;
+    log2_q = 0;
+    while ( (2*q) <= p) {
+        q = 2*q;
+        log2_q = log2_q + 1;
+    }
+
+    /* r is the number of remaining processes, after q */
+    r = p - q;
+
+    elem_size = get_reduction_type_size(*elem_type, *charlen);
+
+    k = (sz+1)*elem_size;
+    if (collectives_bufsize < k) {
+        /* not enough room in collectives buffer for the base or work
+         * buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail((num_bufs+1)*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = coarray_allocatable_allocate_(
+                (num_bufs+1)*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers = &((char*)base_buffer)[(sz+1)*elem_size];
+        base_buffer_alloc = 1;
+    } else if (collectives_bufsize < 2*k) {
+        /* not enough room in collectives buffer for the work buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail(num_bufs*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = collectives_buffer;
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        work_buffers = coarray_allocatable_allocate_(
+                num_bufs*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers_alloc = 1;
+    } else {
+        /* collectives buffer is large enough to accomodate at least one work
+         * buffer, so use that */
+        base_buffer = collectives_buffer;
+        work_buffers = &((char*)collectives_buffer)[(sz+1)*elem_size];
+        num_bufs = ((int)collectives_bufsize-k)/k;
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+    }
+
+    pot_partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+    partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+
+    memcpy(base_buffer, source, sz*elem_size);
+    ((char *)base_buffer)[sz*elem_size] = 1;
+
+
+    /* Phase 1: Reduce to Leader */
+
+    me = intranode_index;
+    step = 1;
+    for (i = 1; i <= log2_qq; i += num_bufs) {
+        k = 0;
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            k2 = j*(sz+1);
+            ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+            if (((me-1)%(2*step)) < step) {
+                pot_partners[j-1] = me+step;
+                if ((me+step) <= pp) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me+step]+1;
+                }
+            } else {
+                pot_partners[j-1] = me-step;
+                if ((me-step) >= 1) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me-step]+1;
+                }
+            }
+            step = step * 2;
+        }
+
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            if (j == 1 && k > 0) {
+                comm_sync_images(partners, k, NULL, 0, NULL, 0);
+            }
+            partner = pot_partners[j-1];
+            if (partner < 1 || partner > pp) continue;
+
+            k1 = (j-1)*(sz+1)+1;
+            k2 = j*(sz+1);
+
+            if (me > partner) {
+                proc_id = current_team->intranode_set[partner];
+
+                comm_write_x( proc_id,
+                              &((char*)work_buffers)[(k1-1)*elem_size],
+                              &((char*)base_buffer)[0],
+                              sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+            } else {
+
+                /* poll on flag */
+                comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                /* reduce:
+                 *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                 */
+
+                perform_reduce(*op, *elem_type, base_buffer,
+                               &((char*)work_buffers)[(k1-1)*elem_size],
+                               sz, *charlen);
+            }
+        }
+    }
+
+    /* Phase 2: Leaders perform reduction using recursive-doubling */
+
+    if (is_leader) {
+        me = leader_index+1;
+
+        /* last r processes put values to first r processes */
+        if (me > q) {
+            partner = me - q;
+            //proc_id = get_proc_id(current_team, partner);
+            proc_id = leader_set[partner-1];
+
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            if (enable_collectives_use_canary) {
+
+                comm_nbi_write( proc_id,
+                        &((char*)work_buffers)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size+1 );
+
+            } else {
+
+
+                comm_write_x( proc_id,
+                        &((char*)work_buffers)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                        &((char*)work_buffers)[sz*elem_size],
+                        &((char*)base_buffer)[sz*elem_size],
+                        1 );
+
+            }
+
+        } else if (me <= r) {
+            partner = me + q;
+            proc_id = leader_set[partner-1];
+
+            ((char*)work_buffers)[sz*elem_size] = 0;
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)work_buffers)[sz*elem_size]);
+            ((char *)work_buffers)[sz*elem_size] = 0;
+
+            /* reduce:
+             *   work_buf(1:sz) = work_buf(1:sz) + work_buf(sz+2:2*(sz+1)-1)
+             */
+
+            perform_reduce(*op, *elem_type, base_buffer,
+                    &((char*)work_buffers)[0],
+                    sz, *charlen);
+        }
+
+        /* first q processes do recursive doubling algorithm */
+        if (me <= q) {
+            step = 1;
+            for (i = 1; i <= log2_q; i += num_bufs) {
+                for (j = 1; j <= MIN(num_bufs, log2_q-i+1); j++) {
+                    k2 = j*(sz+1);
+                    ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+                    if (((me-1)%(2*step)) < step) {
+                        partners[j-1] = leader_set[me+step-1] + 1;
+                    } else {
+                        partners[j-1] = leader_set[me-step-1] + 1;
+                    }
+                    step = step*2;
+                }
+                for (j = 1; j <= MIN(num_bufs, log2_q-i+1); j++) {
+
+                    if (j == 1) {
+                        comm_sync_images(partners, MIN(num_bufs, log2_q), NULL, 0,
+                                NULL, 0);
+                    }
+                    k1 = (j-1)*(sz+1)+1;
+                    k2 = j*(sz+1);
+                    proc_id = partners[j-1] - 1;
+
+                    if (enable_collectives_use_canary) {
+
+                        comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k1-1)*elem_size],
+                                &((char*)base_buffer)[0],
+                                sz*elem_size+1 );
+
+                    } else {
+
+                        comm_write_x( proc_id,
+                                &((char*)work_buffers)[(k1-1)*elem_size],
+                                &((char*)base_buffer)[0],
+                                sz*elem_size );
+
+                        comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+                    }
+
+
+                    /* poll on flag */
+                    comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                    ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                    /* reduce:
+                     *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                     */
+
+                    perform_reduce(*op, *elem_type, base_buffer,
+                            &((char*)work_buffers)[(k1-1)*elem_size],
+                            sz, *charlen);
+                }
+            }
+        }
+
+
+        /* first r processes put values to last r processes */
+        if (me <= r) {
+            partner = me + q;
+            proc_id = leader_set[partner-1];
+
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            if (enable_collectives_use_canary) {
+
+                comm_nbi_write( proc_id,
+                        &((char*)base_buffer)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size+1 );
+
+            } else {
+
+                comm_write_x( proc_id,
+                        &((char*)base_buffer)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                        &((char*)base_buffer)[sz*elem_size],
+                        &((char*)base_buffer)[sz*elem_size],
+                        1 );
+
+            }
+
+        } else if (me > q) {
+            partner = me - q;
+            proc_id = leader_set[partner-1];
+            ((char*)base_buffer)[sz*elem_size] = 0;
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)base_buffer)[sz*elem_size]);
+        }
+
+    }
+
+    /* Phase 3: Leader writes values back to its non-leaders */
+#if defined(GASNET)
+    if (is_leader) {
+        int i;
+        *(current_team->intranode_collflags[0]) = intranode_count-1;
+        for (i = 1; i < intranode_count; i++) {
+            *(current_team->intranode_collflags[i]) = 1;
+        }
+
+        /* wait for non-leaders to finish reading buffer */
+        comm_poll_char_while_nonzero(current_team->intranode_collflags[0]);
+    } else {
+        int my_leader_image = current_team->intranode_set[1] + 1;
+
+        /* poll on flag */
+        comm_poll_char_while_zero(current_team->intranode_collflags[0]);
+        comm_read(my_leader_image-1, &((char*)base_buffer)[0],
+                  &((char*)base_buffer)[0], sz*elem_size);
+        *(current_team->intranode_collflags[0]) = 0;
+        SYNC_FETCH_AND_ADD(
+            (barrier_flags_t *)current_team->intranode_collflags[1],
+            -1);
+    }
+#else
+    if (is_leader) {
+        int i;
+        for (i = 1; i < intranode_count; i++) {
+            comm_write_x(current_team->intranode_set[i+1], &((char*)base_buffer)[0],
+                    &((char*)base_buffer)[0], sz);
+        }
+        /* NOTE: assumes that SYNC_IMAGES_HASH is NOT defined  */
+        comm_sync_images(local_images, intranode_count-1, NULL, 0, NULL, 0);
+    } else {
+        int my_leader_image = current_team->intranode_set[1] + 1;
+        comm_sync_images(&my_leader_image, 1, NULL, 0, NULL, 0);
+    }
+#endif
+
+    memcpy(source, base_buffer, sz*elem_size);
+
+    free(partners);
+    free(pot_partners);
+
+    if (is_leader) {
+      free(local_images);
+    }
+
+    if (base_buffer_alloc) {
+        coarray_deallocate_(base_buffer, NULL);
+    } else if (work_buffers_alloc) {
+        coarray_deallocate_(work_buffers, NULL);
+    }
+
+    PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+}
+#endif
 
 void co_broadcast_from_root(void *source, size_t sz, int source_image)
 {
@@ -1831,8 +2454,8 @@ void co_broadcast_from_root(void *source, size_t sz, int source_image)
     void *base_buffer;
     int base_buffer_alloc = 0;
 
-    if (enable_collectives_2level && current_team &&
-        (current_team->leaders_count > 1  &&
+    if ((enable_collectives_2level || enable_broadcast_2level) &&
+        current_team && (current_team->leaders_count > 1  &&
           current_team->leaders_count < _num_images)) {
         co_broadcast_from_root_2level(source, sz, source_image);
         LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
@@ -1922,7 +2545,7 @@ void co_broadcast_from_root(void *source, size_t sz, int source_image)
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
-void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
+static void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
 {
     int k;
     int i,j, step, val, log2_p;
@@ -1984,10 +2607,10 @@ void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
         log2_p = log2_p + 1;
     }
 
-    if (me == source_image) {
+    if (_this_image == source_image) {
         memcpy(base_buffer, source, sz);
 
-        if (me != 1) {
+        if (_this_image != 1) {
             /* copy from source image to image 1 */
             int root = 1;
             proc_id = get_proc_id(current_team, root);
@@ -2001,7 +2624,7 @@ void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
         }
 
     } else {
-        if (me == 1) {
+        if (_this_image == 1) {
             _SYNC_IMAGES(&source_image, 1, NULL, 0, NULL, 0);
 
             /* received from source image */
@@ -2010,47 +2633,77 @@ void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
 
     /* Phase 1: Broadcast to other leaders */
 
-    step = q;
-    while (step > 0) {
+    if (is_leader) {
+      step = q;
+      while (step > 0) {
         if ((me-1)%step == 0) {
-            if (((me-1)%(2*step)) == 0) {
-                if ((me+step) <= p) {
-                    int p = me+step;
-                    proc_id = get_proc_id(current_team, p);
-                    comm_nbi_write( proc_id,
-                                    &((char*)base_buffer)[0],
-                                    &((char*)base_buffer)[0],
-                                    sz );
-                    _SYNC_IMAGES(&p, 1, NULL, 0, NULL, 0);
-                }
-            } else {
-                if ((me-step) >= 1) {
-                    int p = me-step;
-                    _SYNC_IMAGES(&p, 1, NULL, 0, NULL, 0);
-                }
+          if (((me-1)%(2*step)) == 0) {
+            if ((me+step) <= p) {
+              int p = me+step;
+              proc_id = leader_set[p-1];
+              comm_nbi_write( proc_id,
+                  &((char*)base_buffer)[0],
+                  &((char*)base_buffer)[0],
+                  sz );
+              int image_id = proc_id+1;
+              comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
             }
+          } else {
+            if ((me-step) >= 1) {
+              int p = me-step;
+              proc_id = leader_set[p-1];
+              int image_id = proc_id+1;
+              comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+            }
+          }
         }
         step = step / 2;
+      }
     }
+
 
     /* Phase 2: Leaders broadcast to their non-leaders */
 
+#if defined(GASNET)
+    if (is_leader) {
+        int i;
+        *(current_team->intranode_collflags[0]) = intranode_count-1;
+        for (i = 1; i < intranode_count; i++) {
+            *(current_team->intranode_collflags[i]) = 1;
+        }
+
+        /* wait for non-leaders to finish reading buffer */
+        comm_poll_char_while_nonzero(current_team->intranode_collflags[0]);
+    } else {
+        int my_leader_image = current_team->intranode_set[1] + 1;
+
+        /* poll on flag */
+        comm_poll_char_while_zero(current_team->intranode_collflags[0]);
+        comm_read(my_leader_image-1, &((char*)base_buffer)[0],
+                  &((char*)base_buffer)[0], sz);
+        *(current_team->intranode_collflags[0]) = 0;
+        SYNC_FETCH_AND_ADD(
+            (barrier_flags_t *)current_team->intranode_collflags[1],
+            -1);
+    }
+#else
     if (is_leader) {
         int i;
         for (i = 1; i < intranode_count; i++) {
             comm_write_x(current_team->intranode_set[i+1], &((char*)base_buffer)[0],
-                      &((char*)base_buffer)[0], sz);
-             /* NOTE: assumes that SYNC_IMAGES_HASH is NOT defined  */
-            comm_sync_images(&local_images[i-1], 1, NULL, 0, NULL, 0);
+                    &((char*)base_buffer)[0], sz);
         }
+        /* NOTE: assumes that SYNC_IMAGES_HASH is NOT defined  */
+        comm_sync_images(local_images, intranode_count-1, NULL, 0, NULL, 0);
     } else {
         int my_leader_image = current_team->intranode_set[1] + 1;
         comm_sync_images(&my_leader_image, 1, NULL, 0, NULL, 0);
     }
+#endif
 
     /* all images except for source image needs to copy from base_buffer to
      * source */
-    if (me != source_image) {
+    if (_this_image != source_image) {
         memcpy(source, base_buffer, sz);
     }
 
@@ -2064,14 +2717,14 @@ void co_broadcast_from_root_2level(void *source, size_t sz, int source_image)
 
 void CO_BROADCAST__(void *source, INTEGER4 * source_image,
                     INTEGER4 * stat, char * errmsg, DopeVectorType *source_dv,
-                    int charlen)
+                    int errmsg_len)
 {
     INTEGER8 source_size;
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
     PROFILE_FUNC_ENTRY(CAFPROF_BCAST);
 
 #ifdef MPI_AVAIL
-    if (!mpi_collectives_available && !enable_collectives_1sided) {
+    if (!mpi_collectives_available && enable_collectives_mpi) {
         /* check if MPI was initialized */
         if (MPI_Initialized &&
             MPI_Initialized(&mpi_collectives_available) != MPI_SUCCESS) {
@@ -2084,11 +2737,11 @@ void CO_BROADCAST__(void *source, INTEGER4 * source_image,
     source_size = _SIZEOF_8(source_dv);
 
 #ifdef MPI_AVAIL
-    if (mpi_collectives_available && !enable_collectives_1sided &&
+    if (mpi_collectives_available && enable_collectives_mpi &&
         (current_team == NULL || current_team->depth == 0)) {
         /* adding barrier here to ensure communication progress before
          * entering MPI Bcast routine */
-        comm_barrier_all();
+        comm_sync_all(NULL, 0, NULL, 0);
         MPI_Bcast(source, source_size, MPI_BYTE,
                   *source_image-1, MPI_COMM_WORLD);
     } else
@@ -2101,22 +2754,7 @@ void CO_BROADCAST__(void *source, INTEGER4 * source_image,
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
-
-
-/* translating from image id in 'team' to proc ID */
-static int get_proc_id(team_type team, int image_id)
-{
-    int proc_id = image_id-1;
-
-    if (team!= NULL || team->codimension_mapping != NULL) {
-            proc_id = team->codimension_mapping[image_id-1];
-    }
-
-    return proc_id;
-}
-
-
-void co_reduce_to_image__(void *source, int *result_image, int *size,
+static void co_reduce_to_image__(void *source, int *result_image, int *size,
                           int *elem_size_p, int *charlen, int type,
                           void *opr)
 {
@@ -2137,6 +2775,18 @@ void co_reduce_to_image__(void *source, int *result_image, int *size,
     PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
 
     sz = *size;
+
+    if ((enable_collectives_2level || enable_reduction_2level) &&
+        current_team && (current_team->leaders_count > 1  &&
+          current_team->leaders_count < _num_images)) {
+        co_reduce_to_image_2level__(source, result_image, size, elem_size_p,
+                                   charlen, type, opr);
+        PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+        LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+        return;
+
+        /* does not reach */
+    }
 
     me = _this_image;
     p = _num_images;
@@ -2250,9 +2900,9 @@ void co_reduce_to_image__(void *source, int *result_image, int *size,
             k2 = j*(sz+1);
 
             if (me > partner) {
-	        proc_id = get_proc_id(current_team, partner);
+                proc_id = get_proc_id(current_team, partner);
 
-	        if (enable_collectives_use_canary) {
+                if (0 /*enable_collectives_use_canary*/) {
 
                 comm_nbi_write( proc_id,
                                 &((char*)work_buffers)[(k1-1)*elem_size],
@@ -2337,11 +2987,350 @@ void co_reduce_to_image__(void *source, int *result_image, int *size,
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
-void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
-                               int *charlen, int type,
-                               void *opr);
+static void co_reduce_to_image_2level__(void *source, int *result_image, int *size,
+                          int *elem_size_p, int *charlen, int type,
+                          void *opr)
+{
+    int k;
+    int p, pp, q, qq, me, partner, proc_id;
+    int i, j, step, log2_q, log2_qq, val;
+    int k1, k2;
+    int num_bufs;
+    int *partners, *pot_partners;
+    size_t elem_size;
+    int sz;
+    void *base_buffer;
+    void *work_buffers;
+    int base_buffer_alloc = 0;
+    int work_buffers_alloc = 0;
 
-void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
+    PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
+
+    sz = *size;
+
+    const int my_proc = current_team->codimension_mapping[_this_image - 1];
+    const int is_leader = (current_team->intranode_set[1] == my_proc);
+    const long int *leader_set = current_team->leader_set;
+    const int leaders_count = current_team->leaders_count;
+    const int intranode_count = current_team->intranode_set[0];
+
+    /* find leader index into leaders_set */
+    int leader_index = -1;
+    if (is_leader) {
+        int i;
+        for (i = 0; i < leaders_count; i++) {
+            if (leader_set[i] == my_proc) {
+                leader_index = i;
+                break;
+            }
+        }
+    }
+
+    /* find intranode index into intranode_set */
+    int intranode_index = -1;
+    {
+        int i;
+        for (i = 1; i <= intranode_count; i++) {
+            if (current_team->intranode_set[i] == my_proc) {
+                intranode_index = i;
+                break;
+            }
+        }
+    }
+
+    /* compute image indices for other images on same node */
+    int *local_images;
+    if (is_leader) {
+        local_images = malloc((intranode_count-1) * sizeof(*local_images));
+        int i;
+        for (i = 0; i < intranode_count-1; i++) {
+            /* non-leaders start at intranode_set[2] ... */
+            local_images[i] = current_team->intranode_set[i+2]+1;
+        }
+    }
+
+    me = leader_index+1;
+    p = leaders_count;
+    pp = intranode_count;
+
+    /* find log2_qq, ceil( log2(pp) ) */
+    qq = 1;
+    log2_qq = 0;
+    while ( (2*qq) <= pp) {
+        qq = 2*qq;
+        log2_qq = log2_qq + 1;
+    }
+    if (qq < pp)
+        log2_qq = log2_qq + 1;
+
+    /* find log2_q, ceil( log2(p) ) */
+    q = 1;
+    log2_q = 0;
+    while ( (2*q) <= p) {
+        q = 2*q;
+        log2_q = log2_q + 1;
+    }
+    if (q < p)
+        log2_q = log2_q + 1;
+
+    elem_size = *elem_size_p;
+
+    k = (sz+1)*elem_size;
+    if (collectives_bufsize < k) {
+        /* not enough room in collectives buffer for the base or work
+         * buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail((num_bufs+1)*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = coarray_allocatable_allocate_(
+                (num_bufs+1)*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers = &((char*)base_buffer)[(sz+1)*elem_size];
+        base_buffer_alloc = 1;
+    } else if (collectives_bufsize < 2*k) {
+        /* not enough room in collectives buffer for the work buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail(num_bufs*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = collectives_buffer;
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        work_buffers = coarray_allocatable_allocate_(
+                num_bufs*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers_alloc = 1;
+    } else {
+        /* collectives buffer is large enough to accomodate at least one work
+         * buffer, so use that */
+        base_buffer = collectives_buffer;
+        work_buffers = &((char*)collectives_buffer)[(sz+1)*elem_size];
+        num_bufs = ((int)collectives_bufsize-k)/k;
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+    }
+
+    pot_partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+    partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+
+    memcpy(base_buffer, source, sz*elem_size);
+    ((char *)base_buffer)[sz*elem_size] = 1;
+
+
+    /* Phase 1: Reduce to Leader */
+
+    me = intranode_index;
+    step = 1;
+    for (i = 1; i <= log2_qq; i += num_bufs) {
+        k = 0;
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            k2 = j*(sz+1);
+            ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+            if (((me-1)%(2*step)) < step) {
+                pot_partners[j-1] = me+step;
+                if ((me+step) <= pp) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me+step]+1;
+                }
+            } else {
+                pot_partners[j-1] = me-step;
+                if ((me-step) >= 1) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me-step]+1;
+                }
+            }
+            step = step * 2;
+        }
+
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            if (j == 1 && k > 0) {
+                comm_sync_images(partners, k, NULL, 0, NULL, 0);
+            }
+            partner = pot_partners[j-1];
+            if (partner < 1 || partner > pp) continue;
+
+            k1 = (j-1)*(sz+1)+1;
+            k2 = j*(sz+1);
+
+            if (me > partner) {
+                proc_id = current_team->intranode_set[partner];
+
+                comm_write_x( proc_id,
+                              &((char*)work_buffers)[(k1-1)*elem_size],
+                              &((char*)base_buffer)[0],
+                              sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+            } else {
+
+                /* poll on flag */
+                comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                /* reduce:
+                 *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                 */
+
+                perform_udr(opr, base_buffer,
+                            &((char*)work_buffers)[(k1-1)*elem_size],
+                            sz, elem_size, *charlen, type);
+            }
+        }
+    }
+
+    /* Phase 2: Leaders reduce to the first leader */
+
+    if (is_leader) {
+        me = leader_index+1;
+
+        step = 1;
+        for (i = 1; i <= log2_q; i += num_bufs) {
+            k = 0;
+            for (j = 1; j <= MIN(num_bufs,log2_q-i+1); j++) {
+                k2 = j*(sz+1);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+                if (((me-1)%(2*step)) < step) {
+                    pot_partners[j-1] = me+step;
+                    if ((me+step) <= p) {
+                        k = k + 1;
+                        partners[k-1] = leader_set[me+step-1] + 1;
+                    }
+                } else {
+                    pot_partners[j-1] = me-step;
+                    if ((me-step) >= 1) {
+                        k = k + 1;
+                        partners[k-1] = leader_set[me-step-1] + 1;
+                    }
+                }
+                step = step * 2;
+            }
+
+            for (j = 1; j <= MIN(num_bufs,log2_q-i+1); j++) {
+                if (j == 1 && k > 0) {
+                    comm_sync_images(partners, k, NULL, 0, NULL, 0);
+                }
+                partner = pot_partners[j-1];
+                if (partner < 1 || partner > p) continue;
+
+                k1 = (j-1)*(sz+1)+1;
+                k2 = j*(sz+1);
+
+                if (me > partner) {
+                    proc_id = leader_set[partner-1];
+
+                    if (enable_collectives_use_canary) {
+
+                    comm_nbi_write( proc_id,
+                                    &((char*)work_buffers)[(k1-1)*elem_size],
+                                    &((char*)base_buffer)[0],
+                                    sz*elem_size+1 );
+                    } else {
+
+                    comm_write_x( proc_id,
+                                  &((char*)work_buffers)[(k1-1)*elem_size],
+                                  &((char*)base_buffer)[0],
+                                  sz*elem_size );
+
+                    comm_nbi_write( proc_id,
+                                    &((char*)work_buffers)[(k2-1)*elem_size],
+                                    &((char*)base_buffer)[sz*elem_size],
+                                    1 );
+                    }
+
+                } else {
+
+                    /* poll on flag */
+                    comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+
+                    /* reduce:
+                     *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                     */
+
+                    perform_udr(opr, base_buffer,
+                                &((char*)work_buffers)[(k1-1)*elem_size],
+                                sz, elem_size, *charlen, type);
+                }
+            }
+        }
+    }
+
+    /* TODO: can be a bit more clever here and avoid this extra copy, by
+     * temporarily treating the result image as the leader of its
+     * node for this reduction. */
+    if (me == *result_image) {
+        ((char*)base_buffer)[sz*elem_size] = 0;
+        if (me != 1) {
+            int root = 1;
+            _SYNC_IMAGES(&root, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)base_buffer)[sz*elem_size]);
+        }
+        memcpy(source, base_buffer, sz*elem_size);
+    } else if (me == 1) {
+        _SYNC_IMAGES(result_image, 1, NULL, 0, NULL, 0);
+        proc_id = get_proc_id(current_team, *result_image);
+
+        comm_write_x( proc_id,
+                &((char*)base_buffer)[0],
+                &((char*)base_buffer)[0],
+                sz*elem_size );
+
+        comm_nbi_write( proc_id,
+                &((char*)base_buffer)[sz*elem_size],
+                &((char*)base_buffer)[sz*elem_size],
+                1 );
+    }
+
+    free(partners);
+    free(pot_partners);
+
+    if (is_leader) {
+      free(local_images);
+    }
+
+    if (base_buffer_alloc) {
+        coarray_deallocate_(base_buffer, NULL);
+    } else if (work_buffers_alloc) {
+        coarray_deallocate_(work_buffers, NULL);
+    }
+
+    PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+}
+
+
+static void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
                         int *charlen, int type, void *opr)
 {
     int k;
@@ -2364,8 +3353,8 @@ void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
 
     sz = *size;
 
-    if (enable_collectives_2level && current_team &&
-        (current_team->leaders_count > 1  &&
+    if ((enable_collectives_2level || enable_reduction_2level) &&
+        current_team && (current_team->leaders_count > 1  &&
           current_team->leaders_count < _num_images) ) {
         co_reduce_to_all_2level__(source, size, elem_size_p, charlen, type, opr);
         PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
@@ -2460,7 +3449,7 @@ void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
         _SYNC_IMAGES (&partner, 1, NULL, 0, NULL, 0);
 
 
-        if (enable_collectives_use_canary) {
+        if (0 /*enable_collectives_use_canary*/) {
 
             comm_nbi_write( proc_id,
                             &((char*)work_buffers)[0],
@@ -2525,7 +3514,7 @@ void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
                 partner = partners[j-1];
                 proc_id = get_proc_id(current_team, partner);
 
-                if (enable_collectives_use_canary) {
+                if (0 /*enable_collectives_use_canary*/) {
 
                 comm_nbi_write( proc_id,
                                 &((char*)work_buffers)[(k1-1)*elem_size],
@@ -2570,7 +3559,7 @@ void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
 
         _SYNC_IMAGES (&partner, 1, NULL, 0, NULL, 0);
 
-        if (enable_collectives_use_canary) {
+        if (0 /*enable_collectives_use_canary*/) {
 
             comm_nbi_write( proc_id,
                             &((char*)base_buffer)[0],
@@ -2614,7 +3603,11 @@ void co_reduce_to_all__(void *source, int *size, int *elem_size_p,
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
-void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
+#if 0
+
+/* old version -- keeping it around for now */
+
+static void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
                                int *charlen, int type, void *opr)
 {
     int k;
@@ -2965,6 +3958,451 @@ void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
 
+#else
+
+static void co_reduce_to_all_2level__(void *source, int *size, int *elem_size_p,
+                               int *charlen, int type, void *opr)
+{
+    int k;
+    int p, pp, q, qq, r, me, partner, proc_id;
+    int i, j, step, log2_q, log2_qq, val;
+    int k1, k2;
+    int num_bufs;
+    int *partners, *pot_partners;
+    size_t elem_size;
+    int sz;
+    void *base_buffer;
+    void *work_buffers;
+    int base_buffer_alloc = 0;
+    int work_buffers_alloc = 0;
+    int do_mpi;
+    int ierr;
+
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
+    PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
+
+    sz = *size;
+
+    const int my_proc = current_team->codimension_mapping[_this_image - 1];
+    const int is_leader = (current_team->intranode_set[1] == my_proc);
+    const long int *leader_set = current_team->leader_set;
+    const int leaders_count = current_team->leaders_count;
+    const int intranode_count = current_team->intranode_set[0];
+
+    /* find leader index into leaders_set */
+    int leader_index = -1;
+    if (is_leader) {
+        int i;
+        for (i = 0; i < leaders_count; i++) {
+            if (leader_set[i] == my_proc) {
+                leader_index = i;
+                break;
+            }
+        }
+    }
+
+    /* find intranode index into intranode_set */
+    int intranode_index = -1;
+    {
+        int i;
+        for (i = 1; i <= intranode_count; i++) {
+            if (current_team->intranode_set[i] == my_proc) {
+                intranode_index = i;
+                break;
+            }
+        }
+    }
+
+    /* compute image indices for other images on same node */
+    int *local_images;
+    if (is_leader) {
+        local_images = malloc((intranode_count-1) * sizeof(*local_images));
+        int i;
+        for (i = 0; i < intranode_count-1; i++) {
+            /* non-leaders start at intranode_set[2] ... */
+            local_images[i] = current_team->intranode_set[i+2]+1;
+        }
+    }
+
+    me = leader_index+1;
+    p = leaders_count;
+    pp = intranode_count;
+
+    /* find log2_qq, ceil( log2(pp) ) */
+    qq = 1;
+    log2_qq = 0;
+    while ( (2*qq) <= pp) {
+        qq = 2*qq;
+        log2_qq = log2_qq + 1;
+    }
+    if (qq < pp)
+        log2_qq = log2_qq + 1;
+
+    /* find greatest power of 2, q, less than p */
+    q = 1;
+    log2_q = 0;
+    while ( (2*q) <= p) {
+        q = 2*q;
+        log2_q = log2_q + 1;
+    }
+
+    /* r is the number of remaining processes, after q */
+    r = p - q;
+
+    elem_size = *elem_size_p;
+
+    k = (sz+1)*elem_size;
+    if (collectives_bufsize < k) {
+        /* not enough room in collectives buffer for the base or work
+         * buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail((num_bufs+1)*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = coarray_allocatable_allocate_(
+                (num_bufs+1)*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers = &((char*)base_buffer)[(sz+1)*elem_size];
+        base_buffer_alloc = 1;
+    } else if (collectives_bufsize < 2*k) {
+        /* not enough room in collectives buffer for the work buffer(s) */
+
+        /* find largest number of work buffers that can be accomodated */
+
+        num_bufs = MAX(log2_q, log2_qq);
+
+        const unsigned long largest_slot =
+            largest_allocatable_slot_avail(num_bufs*(sz+1)*elem_size);
+
+        num_bufs = MIN(num_bufs,((int)largest_slot-k)/k);
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        base_buffer = collectives_buffer;
+
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+
+        work_buffers = coarray_allocatable_allocate_(
+                num_bufs*(sz+1)*elem_size, NULL, NULL);
+
+        work_buffers_alloc = 1;
+    } else {
+        /* collectives buffer is large enough to accomodate at least one work
+         * buffer, so use that */
+        base_buffer = collectives_buffer;
+        work_buffers = &((char*)collectives_buffer)[(sz+1)*elem_size];
+        num_bufs = ((int)collectives_bufsize-k)/k;
+        if (collectives_max_workbufs >= 1) {
+          num_bufs = MIN(num_bufs, collectives_max_workbufs);
+        }
+    }
+
+    pot_partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+    partners = malloc(MAX(log2_q, log2_qq)*sizeof(int));
+
+    memcpy(base_buffer, source, sz*elem_size);
+    ((char *)base_buffer)[sz*elem_size] = 1;
+
+
+    /* Phase 1: Reduce to Leader */
+
+    me = intranode_index;
+    step = 1;
+    for (i = 1; i <= log2_qq; i += num_bufs) {
+        k = 0;
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            k2 = j*(sz+1);
+            ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+            if (((me-1)%(2*step)) < step) {
+                pot_partners[j-1] = me+step;
+                if ((me+step) <= pp) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me+step]+1;
+                }
+            } else {
+                pot_partners[j-1] = me-step;
+                if ((me-step) >= 1) {
+                    k = k + 1;
+                    partners[k-1] = current_team->intranode_set[me-step]+1;
+                }
+            }
+            step = step * 2;
+        }
+
+        for (j = 1; j <= MIN(num_bufs,log2_qq-i+1); j++) {
+            if (j == 1 && k > 0) {
+                comm_sync_images(partners, k, NULL, 0, NULL, 0);
+            }
+            partner = pot_partners[j-1];
+            if (partner < 1 || partner > pp) continue;
+
+            k1 = (j-1)*(sz+1)+1;
+            k2 = j*(sz+1);
+
+            if (me > partner) {
+                proc_id = current_team->intranode_set[partner];
+
+                comm_write_x( proc_id,
+                              &((char*)work_buffers)[(k1-1)*elem_size],
+                              &((char*)base_buffer)[0],
+                              sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+            } else {
+
+                /* poll on flag */
+                comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                /* reduce:
+                 *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                 */
+
+                perform_udr(opr, base_buffer,
+                            &((char*)work_buffers)[(k1-1)*elem_size],
+                            sz, elem_size, *charlen, type);
+            }
+        }
+    }
+
+    /* Phase 2: Leaders perform reduction using recursive-doubling */
+
+    if (is_leader) {
+        me = leader_index+1;
+
+        /* last r processes put values to first r processes */
+        if (me > q) {
+            partner = me - q;
+            //proc_id = get_proc_id(current_team, partner);
+            proc_id = leader_set[partner-1];
+
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            if (enable_collectives_use_canary) {
+
+                comm_nbi_write( proc_id,
+                        &((char*)work_buffers)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size+1 );
+
+            } else {
+
+
+                comm_write_x( proc_id,
+                        &((char*)work_buffers)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                        &((char*)work_buffers)[sz*elem_size],
+                        &((char*)base_buffer)[sz*elem_size],
+                        1 );
+
+            }
+
+        } else if (me <= r) {
+            partner = me + q;
+            proc_id = leader_set[partner-1];
+
+            ((char*)work_buffers)[sz*elem_size] = 0;
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)work_buffers)[sz*elem_size]);
+            ((char *)work_buffers)[sz*elem_size] = 0;
+
+            /* reduce:
+             *   work_buf(1:sz) = work_buf(1:sz) + work_buf(sz+2:2*(sz+1)-1)
+             */
+
+            perform_udr(opr, base_buffer,
+                    &((char*)work_buffers)[0],
+                    sz, elem_size, *charlen, type);
+        }
+
+        /* first q processes do recursive doubling algorithm */
+        if (me <= q) {
+            step = 1;
+            for (i = 1; i <= log2_q; i += num_bufs) {
+                for (j = 1; j <= MIN(num_bufs, log2_q-i+1); j++) {
+                    k2 = j*(sz+1);
+                    ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+                    if (((me-1)%(2*step)) < step) {
+                        partners[j-1] = leader_set[me+step-1] + 1;
+                    } else {
+                        partners[j-1] = leader_set[me-step-1] + 1;
+                    }
+                    step = step*2;
+                }
+                for (j = 1; j <= MIN(num_bufs, log2_q-i+1); j++) {
+
+                    if (j == 1) {
+                        comm_sync_images(partners, MIN(num_bufs, log2_q), NULL, 0,
+                                NULL, 0);
+                    }
+                    k1 = (j-1)*(sz+1)+1;
+                    k2 = j*(sz+1);
+                    proc_id = partners[j-1] - 1;
+
+                    if (enable_collectives_use_canary) {
+
+                        comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k1-1)*elem_size],
+                                &((char*)base_buffer)[0],
+                                sz*elem_size+1 );
+
+                    } else {
+
+                        comm_write_x( proc_id,
+                                &((char*)work_buffers)[(k1-1)*elem_size],
+                                &((char*)base_buffer)[0],
+                                sz*elem_size );
+
+                        comm_nbi_write( proc_id,
+                                &((char*)work_buffers)[(k2-1)*elem_size],
+                                &((char*)base_buffer)[sz*elem_size],
+                                1 );
+
+                    }
+
+
+                    /* poll on flag */
+                    comm_poll_char_while_zero(&((char*)work_buffers)[(k2-1)*elem_size]);
+                    ((char *)work_buffers)[(k2-1)*elem_size] = 0;
+
+                    /* reduce:
+                     *   work_buf(1:sz) = work_buf(1:sz) + work_buf(k1:k2-1)
+                     */
+
+                    perform_udr(opr, base_buffer,
+                            &((char*)work_buffers)[(k1-1)*elem_size],
+                            sz, elem_size, *charlen, type);
+                }
+            }
+        }
+
+
+        /* first r processes put values to last r processes */
+        if (me <= r) {
+            partner = me + q;
+            proc_id = leader_set[partner-1];
+
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            if (enable_collectives_use_canary) {
+
+                comm_nbi_write( proc_id,
+                        &((char*)base_buffer)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size+1 );
+
+            } else {
+
+                comm_write_x( proc_id,
+                        &((char*)base_buffer)[0],
+                        &((char*)base_buffer)[0],
+                        sz*elem_size );
+
+                comm_nbi_write( proc_id,
+                        &((char*)base_buffer)[sz*elem_size],
+                        &((char*)base_buffer)[sz*elem_size],
+                        1 );
+
+            }
+
+        } else if (me > q) {
+            partner = me - q;
+            proc_id = leader_set[partner-1];
+            ((char*)base_buffer)[sz*elem_size] = 0;
+            int image_id = proc_id+1;
+            comm_sync_images(&image_id, 1, NULL, 0, NULL, 0);
+
+            /* poll on flag */
+            comm_poll_char_while_zero(&((char*)base_buffer)[sz*elem_size]);
+        }
+
+    }
+
+    /* Phase 3: Leader writes values back to its non-leaders */
+#if defined(GASNET)
+    if (is_leader) {
+        int i;
+        *(current_team->intranode_collflags[0]) = intranode_count-1;
+        for (i = 1; i < intranode_count; i++) {
+            *(current_team->intranode_collflags[i]) = 1;
+        }
+
+        /* wait for non-leaders to finish reading buffer */
+        comm_poll_char_while_nonzero(current_team->intranode_collflags[0]);
+    } else {
+        int my_leader_image = current_team->intranode_set[1] + 1;
+
+        /* poll on flag */
+        comm_poll_char_while_zero(current_team->intranode_collflags[0]);
+        comm_read(my_leader_image-1, &((char*)base_buffer)[0],
+                  &((char*)base_buffer)[0], sz*elem_size);
+        *(current_team->intranode_collflags[0]) = 0;
+        SYNC_FETCH_AND_ADD(
+            (barrier_flags_t *)current_team->intranode_collflags[1],
+            -1);
+    }
+#else
+    if (is_leader) {
+        int i;
+        for (i = 1; i < intranode_count; i++) {
+            comm_write_x(current_team->intranode_set[i+1], &((char*)base_buffer)[0],
+                    &((char*)base_buffer)[0], sz);
+        }
+        /* NOTE: assumes that SYNC_IMAGES_HASH is NOT defined  */
+        comm_sync_images(local_images, intranode_count-1, NULL, 0, NULL, 0);
+    } else {
+        int my_leader_image = current_team->intranode_set[1] + 1;
+        comm_sync_images(&my_leader_image, 1, NULL, 0, NULL, 0);
+    }
+#endif
+
+    memcpy(source, base_buffer, sz*elem_size);
+
+    free(partners);
+    free(pot_partners);
+
+    if (is_leader) {
+      free(local_images);
+    }
+
+    if (base_buffer_alloc) {
+        coarray_deallocate_(base_buffer, NULL);
+    } else if (work_buffers_alloc) {
+        coarray_deallocate_(work_buffers, NULL);
+    }
+
+    PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+}
+
+#endif
+
 
 void CO_REDUCE__(void *source, void *opr, INTEGER4 *result_image,
                  INTEGER4 * stat, char * errmsg, DopeVectorType *source_dv,
@@ -2995,3 +4433,130 @@ void CO_REDUCE__(void *source, void *opr, INTEGER4 *result_image,
     PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
     LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
 }
+
+/* assuming here that dest is remotely accessible */
+void co_gather_to_all__(void *source, void *dest, int size, int elem_size)
+{
+    int p, q, me, proc_id;
+    int i, j, step, log2_p, val;
+    size_t block_size;
+#ifdef MPI_AVAIL
+    MPI_Datatype dtype;
+#endif
+
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "entry");
+    PROFILE_FUNC_ENTRY(CAFPROF_REDUCE);
+
+    me = _this_image;
+    p = _num_images;
+
+    /* find log2_p, ceil(log2(p)) */
+    q = 1;
+    log2_p = 0;
+    while ( q < p) {
+        q = 2*q;
+        log2_p++;
+    }
+
+    block_size = elem_size * size;
+
+#ifdef MPI_AVAIL
+    if (!mpi_collectives_available && enable_collectives_mpi) {
+        /* check if MPI was initialized */
+        if (MPI_Initialized &&
+            MPI_Initialized(&mpi_collectives_available) != MPI_SUCCESS) {
+            Error("MPI_Initialized check failed");
+        }
+    }
+
+    if (mpi_collectives_available && enable_collectives_mpi &&
+        (current_team == NULL || current_team->depth == 0)) {
+
+        /* adding barrier here to ensure communication progress before
+         * entering MPI reduce routine */
+
+        MPI_Type_contiguous(block_size, MPI_BYTE, &dtype);
+        MPI_Type_commit(&dtype);
+
+        comm_sync_all(NULL, 0, NULL, 0);
+
+        MPI_Allgather(source,  1, dtype, dest, 1, dtype, MPI_COMM_WORLD);
+
+        MPI_Type_free(&dtype);
+        return;
+
+        /* does not reach */
+    }
+#endif
+
+    /* copy source into first block of dest */
+    memcpy(dest, source, block_size);
+
+    /* p processes perform bruck algorithm, 1st stage
+     *
+     * round i:
+     *    write to: me - 2^(i-1), &dest[2^(i-1) * BLK_SIZE]
+     *    nbytes = MIN(2^(i-1), p-2^(i-1)) * BLK_SIZE
+     */
+    step = 1;
+    for (i = 1; i <= log2_p; i += 1) {
+        int k;
+        int partners[2];
+        partners[0] = 1 + (((me-1) + p) - step) % p;
+        partners[1] = 1 + (((me-1) + p) + step) % p;
+
+        k = MIN(step, p-step);
+
+        /*
+        if (partners[0] != partners[1])
+            _SYNC_IMAGES(partners, 2, NULL, 0, NULL, 0);
+        else
+            _SYNC_IMAGES(partners, 1, NULL, 0, NULL, 0);
+            */
+
+        proc_id = get_proc_id(current_team, partners[0]);
+
+        comm_write_x( proc_id,
+                      &((char*)dest)[step*block_size],
+                      dest, k * block_size );
+
+        if (partners[0] != partners[1])
+            _SYNC_IMAGES(partners, 2, NULL, 0, NULL, 0);
+        else
+            _SYNC_IMAGES(partners, 1, NULL, 0, NULL, 0);
+
+        step = step * 2;
+    }
+
+    /* now, each image should do a local circular shift in its dest buffer
+     */
+
+    char *b;
+    if (collectives_bufsize >= (p*block_size)) {
+        b = (char *)collectives_buffer;
+    } else {
+        b = malloc(p*block_size);
+    }
+
+    /* create copy of dest */
+    memcpy(b, dest, p*block_size);
+
+    /* copy first p-(me-1) blocks from b into end of dest */
+    memcpy(&((char *)dest)[(me-1)*block_size],
+           b,
+           (p-(me-1))*block_size);
+
+    /* copy last me-1 blocks from b into dest */
+    memcpy(dest,
+           &b[(p-(me-1))*block_size],
+           (me-1)*block_size);
+
+
+    if (collectives_bufsize < (p*block_size)) {
+        free(b);
+    }
+
+    PROFILE_FUNC_EXIT(CAFPROF_REDUCE);
+    LIBCAF_TRACE(LIBCAF_LOG_COLLECTIVE, "exit");
+}
+

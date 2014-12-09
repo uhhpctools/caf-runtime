@@ -1,0 +1,54 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+! We test the formation of teams using the FORM TEAM statement.
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+program form_team_test
+    use, intrinsic :: iso_fortran_env
+
+    implicit none
+
+    logical :: success
+    integer :: me, ne
+    integer :: val, expected_val
+    type(team_type) :: tm1, tm2, tm3
+
+    success = .true.
+    me = this_image()
+    ne = num_images()
+
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    ! have all images join the same team, with specified
+    ! new indices
+    !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    form team(1, tm2, new_index=1+mod(this_image(),num_images()))
+
+    expected_val = 1+mod(this_image(), num_images())
+    val = this_image(team=tm2)
+
+    success = success .and. (val .eq. expected_val)
+
+    if (.not. success) then
+        print *, "this_image(team=tm2) is ", val, "; should be", expected_val
+        error stop
+    end if
+
+    expected_val = ne
+    val = num_images(team=tm2)
+
+    success = success .and. (val .eq. expected_val)
+
+    if (.not. success) then
+        print *, "num_images(team=tm2) is ", val, "; should be", expected_val
+        error stop
+    end if
+
+
+    ! reached the end!
+
+    if (success) then
+        print *, "SUCCESS!"
+    else
+        print *, "FAILURE!"
+    end if
+end program

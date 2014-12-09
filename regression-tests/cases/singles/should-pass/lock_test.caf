@@ -79,7 +79,8 @@
               call flush(6)
           end if
 
-          call co_sum(fail_count, fail_total)
+          fail_total = fail_count
+          call co_sum(fail_total)
           total = total[2]
 
           if ( total /= (4*N - fail_total) ) then

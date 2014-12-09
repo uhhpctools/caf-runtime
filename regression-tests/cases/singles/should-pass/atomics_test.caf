@@ -54,7 +54,6 @@ module atomics_tests
         end subroutine atomic_define_ref_test
 
         subroutine atomic_add_test()
-            integer (kind=atomic_int_kind) :: c
 
             if (this_image() == 1) then
                 print *, "ATOMIC ADD TEST"
@@ -80,7 +79,7 @@ module atomics_tests
             else
                 sync images (1)
 
-                call atomic_add ( a1[1], 1, c )
+                call atomic_add ( a1[1], 1 )
 
                 sync images (1)
 
@@ -88,7 +87,6 @@ module atomics_tests
         end subroutine atomic_add_test
 
         subroutine atomic_and_test()
-            integer (kind=atomic_int_kind) :: c
             integer :: val
 
             if (this_image() == 1) then
@@ -120,7 +118,7 @@ module atomics_tests
             else
                 sync images (1)
 
-                call atomic_and ( a1[1], ibclr(a1, this_image()-1), c )
+                call atomic_and ( a1[1], ibclr(a1, this_image()-1) )
 
                 sync images (1)
 
@@ -128,7 +126,6 @@ module atomics_tests
         end subroutine atomic_and_test
 
         subroutine atomic_or_test()
-            integer (kind=atomic_int_kind) :: c
             integer :: val
 
             if (this_image() == 1) then
@@ -160,7 +157,7 @@ module atomics_tests
             else
                 sync images (1)
 
-                call atomic_or ( a1[1], ibset(a1, this_image()-1), c )
+                call atomic_or ( a1[1], ibset(a1, this_image()-1) )
 
                 sync images (1)
 
@@ -169,7 +166,6 @@ module atomics_tests
 
         subroutine atomic_xor_test()
             integer :: i,j
-            integer (kind=atomic_int_kind) :: c
             integer (kind=atomic_int_kind), save:: val[*]
 
             if (this_image() == 1) then
@@ -201,7 +197,7 @@ module atomics_tests
             else
                 sync images (1)
 
-                call atomic_xor ( a1[1], this_image()*33, c )
+                call atomic_xor ( a1[1], this_image()*33 )
 
                 sync images (1)
 
