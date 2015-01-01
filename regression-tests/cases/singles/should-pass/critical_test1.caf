@@ -10,6 +10,10 @@
 
           me = this_image()
 
+          counter = 0
+
+          sync all
+
           critical
             check(1) = counter[1]
 

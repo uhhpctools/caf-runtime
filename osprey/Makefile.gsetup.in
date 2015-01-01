@@ -1,6 +1,6 @@
 # -*- Makefile -*-
 #
-#  Copyright (C) 2011-2013 University of Houston.
+#  Copyright (C) 2011-2014 University of Houston.
 #
 #  Copyright (C) 2011 Advanced Micro Devices, Inc.  All Rights Reserved.
 #
@@ -158,6 +158,7 @@ EPIK_ROOT               = @EPIK_ROOT@
 
 GASNET_HOME             = @GASNET_HOME@
 ARMCI_HOME              = @ARMCI_HOME@
+SHMEM_HOME              = @SHMEM_HOME@
 GASNET_CONDUITS         = @GASNET_CONDUITS@
 UHCAF_MPI_INCLUDE       = @UHCAF_MPI_INCLUDE@
 CAFRT_ENABLE_DTRACES    = @CAFRT_ENABLE_DTRACES@

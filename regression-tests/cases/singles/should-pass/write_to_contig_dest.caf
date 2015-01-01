@@ -5,6 +5,9 @@ program write_to_contig_dest
     integer :: i
 
     b = 0
+
+    sync all
+
     do i=1,5
         a(i,:) = i
     end do

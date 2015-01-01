@@ -1,26 +1,29 @@
 /*
  ARMCI Communication Layer for supporting Coarray Fortran
 
- Copyright (C) 2009-2013 University of Houston.
+ Copyright (C) 2009-2014 University of Houston.
 
- This program is free software; you can redistribute it and/or modify it
- under the terms of version 2 of the GNU General Public License as
- published by the Free Software Foundation.
+ Redistribution and use in source and binary forms, with or without
+ modification, are permitted provided that the following conditions are met:
 
- This program is distributed in the hope that it would be useful, but
- WITHOUT ANY WARRANTY; without even the implied warranty of
- MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+ 1. Redistributions of source code must retain the above copyright notice,
+ this list of conditions and the following disclaimer.
 
- Further, this software is distributed without any warranty that it is
- free of the rightful claim of any third person regarding infringement
- or the like.  Any license provided herein, whether implied or
- otherwise, applies only to this software file.  Patent licenses, if
- any, provided herein do not apply to combinations of this program with
- other software, or any other product whatsoever.
+ 2. Redistributions in binary form must reproduce the above copyright notice,
+ this list of conditions and the following disclaimer in the documentation
+ and/or other materials provided with the distribution.
 
- You should have received a copy of the GNU General Public License along
- with this program; if not, write the Free Software Foundation, Inc., 59
- Temple Place - Suite 330, Boston MA 02111-1307, USA.
+ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+ LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ POSSIBILITY OF SUCH DAMAGE.
 
  Contact information:
  http://www.cs.uh.edu/~hpctools
@@ -85,8 +88,14 @@ extern int enable_broadcast_2level;
 extern int enable_collectives_mpi;
 extern int enable_collectives_use_canary;
 extern int mpi_collectives_available;
-extern void *collectives_buffer;
+extern void *collectives_buffer[2];
 extern size_t collectives_bufsize;
+extern void *allreduce_buffer[2];
+extern size_t allreduce_bufsize;
+extern void *reduce_buffer[2];
+extern size_t reduce_bufsize;
+extern void *broadcast_buffer[2];
+extern size_t broadcast_bufsize;
 extern int collectives_max_workbufs;
 
 /*
@@ -518,7 +527,7 @@ void comm_init()
                                    DEFAULT_ALLOC_BYTE_ALIGNMENT);
 
     /* static coarrays must be 16-byte aligned */
-    static_align = ((alloc_byte_alignment-1)*16+1)*16;
+    static_align = ((alloc_byte_alignment-1)/16+1)*16;
 
     /* get size for collectives buffer */
     collectives_bufsize = get_env_size_with_unit(ENV_COLLECTIVES_BUFSIZE,
@@ -534,10 +543,9 @@ void comm_init()
 
     static_symm_data_total_size = get_static_symm_size(static_align,
                                                        collectives_bufsize);
-    static_symm_data_total_size += sizeof(void *);
 
-
-    static_align = ((alloc_byte_alignment-1)/16+1)*16;
+    static_symm_data_total_size += 
+      ((sizeof(void *)-1)/static_align+1)*static_align;
 
     collectives_offset = static_symm_data_total_size -
         ((collectives_bufsize-1)/static_align+1)*static_align;
@@ -772,12 +780,16 @@ void comm_init()
         }
     }
 
-    allocate_static_symm_data((char *) coarray_start_all_images[my_proc]
-                              + sizeof(void *));
+    allocate_static_symm_data((char *) coarray_start_all_images[my_proc] +
+                      ((sizeof(void *)-1)/static_align+1)*static_align);
 
     /* set collectives buffer */
-    collectives_buffer = coarray_start_all_images[my_proc] +
-                         collectives_offset;
+    collectives_buffer[0] = coarray_start_all_images[my_proc] +
+                            collectives_offset;
+    collectives_buffer[1] = (char *)collectives_buffer[0] +
+                             collectives_bufsize/2;
+
+    memset(collectives_buffer[0], 0, collectives_bufsize);
 
     nb_mgr[PUTS].handles = (struct handle_list **) malloc
         (num_procs * sizeof(struct handle_list *));
@@ -900,6 +912,9 @@ void comm_init()
     initial_team->depth                 = 0;
     initial_team->parent                = NULL;
     initial_team->team_id               = -1;
+    initial_team->allreduce_bufid       = 0;
+    initial_team->reduce_bufid          = 0;
+    initial_team->bcast_bufid           = 0;
     initial_team->defined               = 1;
     initial_team->activated             = 1;
     initial_team->barrier.parity        = 0;
@@ -963,6 +978,93 @@ void comm_init()
             num_procs * sizeof(sync_flag_t), NULL, NULL);
     memset(sync_flags, 0, num_procs*sizeof(sync_flag_t));
 
+    /* allocate a bunch of flags for supporting synchronization in ollectives.
+     *
+     * TODO: needs to be done more efficiently. A single allocatable, and
+     * internode_syncflags should probably be proportional to
+     * log2(leaders_count) rather than leaders_count.
+     * */
+    {
+        size_t flags_offset = 0;
+
+        int log2_leaders = 0;
+        {
+            int p = 1;
+            while ( (2*p) <= initial_team->leaders_count) {
+                p = p*2;
+                log2_leaders += 1;
+            }
+            if (p < initial_team->leaders_count) {
+                log2_leaders += 1;
+            }
+        }
+
+        initial_team->intranode_barflags = malloc(initial_team->intranode_set[0] *
+                                        sizeof(*initial_team->intranode_barflags));
+
+        initial_team->coll_syncflags =
+            coarray_allocatable_allocate_(
+                sizeof(*initial_team->intranode_barflags[0]) +
+                sizeof(*initial_team->bcast_flag) +
+                sizeof(*initial_team->allreduce_flag) +
+                2 * sizeof(*initial_team->reduce_go) +
+                2 * log2_procs * sizeof(*initial_team->reduce_go) +
+                2 * log2_procs * sizeof(*initial_team->allreduce_sync),
+                NULL, NULL);
+
+        initial_team->intranode_barflags[0] = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += sizeof(*initial_team->intranode_barflags[0]);
+
+        initial_team->bcast_flag = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += sizeof(*initial_team->bcast_flag);
+
+        initial_team->reduce_flag = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += sizeof(*initial_team->reduce_flag);
+
+        initial_team->allreduce_flag = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += sizeof(*initial_team->allreduce_flag);
+
+        initial_team->reduce_go = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += 2 * sizeof(*initial_team->reduce_go);
+        initial_team->reduce_go[0] = 1;
+        initial_team->reduce_go[1] = 1;
+
+        initial_team->bcast_go = &initial_team->coll_syncflags[flags_offset];
+        flags_offset += 2 * log2_procs * sizeof(*initial_team->bcast_go);
+        for (i = 0; i < 2*log2_procs; i++) {
+            initial_team->bcast_go[i] = 1;
+        }
+
+        initial_team->allreduce_sync = &initial_team->coll_syncflags[flags_offset];
+
+    }
+
+    /* Initializing remainder of intranode barrier flags */
+    {
+        int num_nonleaders = initial_team->intranode_set[0] - 1;
+        memset(&initial_team->intranode_barflags[1], 0,
+                num_nonleaders * sizeof(*initial_team->intranode_barflags));
+
+        long leader = initial_team->intranode_set[1];
+        int intranode_count = initial_team->intranode_set[0];
+        /* set intranode flags for synchronization */
+        if (my_proc == leader) {
+          int i;
+          for (i = 1; i < intranode_count; i++) {
+            int target = initial_team->intranode_set[i + 1];
+            initial_team->intranode_barflags[i] =
+              comm_get_sharedptr(initial_team->intranode_barflags[0],
+                  target);
+          }
+        } else {
+          int leader = initial_team->intranode_set[1];
+          initial_team->intranode_barflags[1] =
+            comm_get_sharedptr(initial_team->intranode_barflags[0],
+                leader);
+        }
+    }
+
+
     /* check whether to use 1-sided collectives implementation */
     enable_collectives_mpi = get_env_flag(ENV_COLLECTIVES_MPI,
                                     DEFAULT_ENABLE_COLLECTIVES_MPI);
@@ -991,6 +1093,31 @@ void comm_init()
     /*allocate exhange buffer for form_team here*/
     exchange_teaminfo_buf = (team_info_t *)
         coarray_allocatable_allocate_(sizeof(team_info_t)* num_procs, NULL, NULL);
+
+    /* partition collectives buffer into all-reduce, reduce, and broadcast siloes */
+    {
+        int q = 1;
+        int log2_q = 0;
+        while ( (2*q) <=  initial_team->leaders_count) {
+            q = 2 * q;
+            log2_q = log2_q + 1;
+        }
+        if (q < initial_team->leaders_count)
+            log2_q = log2_q + 1;
+
+        allreduce_bufsize = (collectives_bufsize/4)*(1+log2_q)/(2+log2_q);
+        reduce_bufsize    = (collectives_bufsize/4)*(1+log2_q)/(2+log2_q);
+        broadcast_bufsize = (collectives_bufsize/2) -
+                            (allreduce_bufsize + reduce_bufsize);
+
+        allreduce_buffer[0] = collectives_buffer[0];
+        reduce_buffer[0]    = (char*)allreduce_buffer[0] + allreduce_bufsize;
+        broadcast_buffer[0] = (char*)reduce_buffer[0] + reduce_bufsize;
+
+        allreduce_buffer[1] = collectives_buffer[1];
+        reduce_buffer[1]    = (char*)allreduce_buffer[1] + allreduce_bufsize;
+        broadcast_buffer[1] = (char*)reduce_buffer[1] + reduce_bufsize;
+    }
 
     /*Push the first team into stack*/
     global_team_stack->stack[global_team_stack->count] = initial_team;
@@ -2173,20 +2300,6 @@ void comm_sync_all(int *status, int stat_len, char *errmsg, int errmsg_len)
 
     LOAD_STORE_FENCE();
 
-    /* TODO: need to check for stopped image during the execution of the
-     * barrier, instead of just at the beginning */
-    if (stopped_image_exists != NULL && stopped_image_exists[num_procs]) {
-        if (status != NULL) {
-            *((INT2 *) status) = STAT_STOPPED_IMAGE;
-        } else {
-            Error("Image %d attempted to synchronize with stopped image",
-                  _this_image);
-            /* doesn't reach */
-        }
-    } else {
-        ARMCI_Barrier();
-    }
-
 	if(current_team == NULL || current_team == initial_team ||
        current_team->codimension_mapping == NULL) {
 	    if (stopped_image_exists != NULL && stopped_image_exists[num_procs]) {
@@ -2745,7 +2858,6 @@ void comm_swap_request(void *target, void *value, size_t nbytes,
     if (nbytes == sizeof(int)) {
         void *remote_address = get_remote_address(target, proc);
         ARMCI_Rmw(ARMCI_SWAP, value, remote_address, 0, proc);
-        (void) ARMCI_Rmw(ARMCI_SWAP, value, remote_address, 0, proc);
         memmove(retval, value, nbytes);
     } else if (nbytes == sizeof(long)) {
         void *remote_address = get_remote_address(target, proc);
@@ -3474,7 +3586,7 @@ void comm_write(size_t proc, void *dest, void *src,
                 *hdl = handle_node;
             }
 
-            PROFILE_RMA_STORE_END(proc);
+            PROFILE_RMA_STORE_DEFERRED_END(proc);
         } else if (in_progress == 0) {
             /* put has completed */
             if (hdl != NULL && hdl != (void *)-1)

@@ -27,6 +27,8 @@ module atomics_tests
             a(:) = 0
             b1 = .false.
 
+            sync all
+
             !---------------------------------------------------------
             ! point-to-point synchronization test using atomic_define
             ! and atomic_ref
